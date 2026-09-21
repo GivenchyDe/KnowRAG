@@ -5,7 +5,19 @@
 漏导入会导致迁移脚本静默漏表。
 """
 
+from app.models.document import Document, DocumentStatus
+from app.models.ingestion_task import IngestionStatus, IngestionTask
+from app.models.knowledge_base_index import IndexStatus, KnowledgeBaseIndex
 from app.models.model_config import ModelConfig
 from app.models.user import User
 
-__all__ = ["ModelConfig", "User"]
+__all__ = [
+    "Document",
+    "DocumentStatus",
+    "IndexStatus",
+    "IngestionStatus",
+    "IngestionTask",
+    "KnowledgeBaseIndex",
+    "ModelConfig",
+    "User",
+]

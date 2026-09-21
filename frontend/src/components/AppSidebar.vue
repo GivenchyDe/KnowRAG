@@ -55,13 +55,21 @@ function isActive(path: string): boolean {
       </RouterLink>
       <RouterLink
         class="nav-item"
+        :class="{ 'nav-item--active': isActive('/documents') }"
+        to="/documents"
+      >
+        <span class="nav-item__icon" aria-hidden="true">▤</span>
+        <span class="nav-item__text">文档管理</span>
+      </RouterLink>
+      <RouterLink
+        class="nav-item"
         :class="{ 'nav-item--active': isActive('/settings') }"
         to="/settings"
       >
         <span class="nav-item__icon" aria-hidden="true">⚙</span>
         <span class="nav-item__text">模型设置</span>
       </RouterLink>
-      <p class="nav-note">文档管理（Phase 3）、会话历史（Phase 4）将在后续阶段开放。</p>
+      <p class="nav-note">会话历史（Phase 4）将在后续阶段开放。</p>
     </nav>
 
     <div class="sidebar__user">

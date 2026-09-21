@@ -246,6 +246,24 @@ def update_config(
     db.commit()
     db.refresh(config)
 
+    if embedding_changed_fields:
+        # Embedding 配置变化会让**所有用户**的向量空间失效，因此标记全部索引。
+        # 只标记当前用户是不够的：其他用户会继续用与当前配置不匹配的旧索引检索，
+        # 静默返回错误的检索结果，而这种问题极难被发现。
+        # 延迟导入避免循环依赖：index_service 也需要读取模型配置。
+        from app.services import index_service
+
+        stale_count = index_service.mark_all_stale(db)
+        # 同时清空本地模型缓存：换了模型却继续用旧实例，会产出与新索引版本不匹配的向量。
+        from app.services.model_loader import reset_model_cache
+
+        reset_model_cache()
+        logger.warning(
+            "Embedding 配置变更 fields=%s，已标记 %d 个索引为 stale 并清空模型缓存",
+            embedding_changed_fields,
+            stale_count,
+        )
+
     return ConfigUpdateResult(
         index_stale=bool(embedding_changed_fields),
         changed_fields=changed_fields,

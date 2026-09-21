@@ -64,9 +64,47 @@ class Settings(BaseSettings):
     chroma_host: str = Field(default="localhost", description="Chroma 服务地址")
     chroma_port: int = Field(default=8000, description="Chroma 服务端口")
 
-    # --- 本地模型路径（Phase 2 / Phase 4 使用）---
+    # --- 本地模型路径与推理设备（Phase 3 / Phase 4 使用）---
     local_bge_m3_path: str = Field(default="", description="本地 bge-m3 模型目录")
     local_bge_reranker_path: str = Field(default="", description="本地 bge-reranker-large 模型目录")
+    # 设备取值 auto / cpu / cuda：
+    # - auto 会检测 torch.cuda.is_available()，可用则用 GPU，否则回落 CPU；
+    # - 显式写 cuda 时若环境不支持会直接报错，而不是静默降级——
+    #   否则用户以为在用 GPU，实际一直在跑 CPU，性能问题会很难排查。
+    embed_device: str = Field(default="auto", description="Embedding 推理设备：auto / cpu / cuda")
+    rerank_device: str = Field(default="auto", description="Reranker 推理设备：auto / cpu / cuda")
+
+    # --- 向量库（Phase 3 使用）---
+    # 双模式设计：
+    # - server：连接独立运行的 Chroma 服务（与设计文档的 CHROMA_HOST/PORT 一致，
+    #   也是本机开发采用的模式）；
+    # - embedded：进程内直接读写本地 sqlite 文件，无需任何额外服务，
+    #   作为 .env.example 的默认值，让别人 clone 后不装 Chroma 也能跑起来。
+    chroma_mode: str = Field(default="embedded", description="向量库模式：server / embedded")
+    chroma_host: str = Field(default="127.0.0.1", description="Chroma 服务地址（server 模式）")
+    # 端口刻意用 8001 而不是设计文档写的 8000：FastAPI 自己占用了 8000，
+    # 两者在同一台机器上必须错开。
+    chroma_port: int = Field(default=8001, description="Chroma 服务端口（server 模式）")
+    chroma_persist_dir: str = Field(
+        default="", description="Chroma 嵌入式持久化目录；留空时使用 backend/file/chroma_db"
+    )
+
+    # --- 向量切块参数（Phase 3 使用）---
+    # 设计文档第 7.1 节：chunk_size 默认 700、chunk_overlap 默认 100。
+    # 这两个值会写入 knowledge_base_indexes，改动它们同样需要重建索引。
+    chunk_size: int = Field(default=700, ge=100, le=4000, description="切块大小")
+    chunk_overlap: int = Field(default=100, ge=0, le=1000, description="切块重叠")
+
+    # --- 文档存放与上传限制（Phase 3 使用）---
+    upload_dir: str = Field(default="", description="用户上传文件的根目录；留空使用 backend/file")
+    max_upload_bytes: int = Field(
+        default=50 * 1024 * 1024, description="单个上传文件大小上限（字节），默认 50MB"
+    )
+
+    # --- DocStore（Phase 3 使用）---
+    # 切块后的文档节点存入 MongoDB，集合按用户隔离。
+    mongodb_url: str = Field(default="mongodb://127.0.0.1:27017", description="MongoDB 连接串")
+    mongodb_db: str = Field(default="knowrag", description="DocStore 使用的数据库名")
 
     # --- CORS ---
     # 用字符串而非 list 接收：环境变量天然是字符串，pydantic-settings 对 list 字段会先尝试
