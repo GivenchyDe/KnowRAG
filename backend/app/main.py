@@ -19,7 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import Settings, get_settings
 from app.core.errors import TRACE_ID_STATE_KEY, register_exception_handlers
 from app.core.logging import configure_logging, get_logger
-from app.routers import auth
+from app.routers import auth, config
 
 logger = get_logger(__name__)
 
@@ -82,6 +82,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     # 认证接口按 docs/CODING_CONVENTIONS.md 第 6.1 节挂在 /auth 前缀下。
     app.include_router(auth.router)
+    # 配置接口挂在 /api/config 前缀下。
+    app.include_router(config.router)
 
     @app.get("/health", tags=["system"], summary="健康检查")
     async def health() -> dict[str, str]:

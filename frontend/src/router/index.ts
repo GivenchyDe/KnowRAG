@@ -34,6 +34,12 @@ const router = createRouter({
       meta: { title: "知识库问答" },
     },
     {
+      path: "/settings",
+      name: "settings",
+      component: () => import("@/views/SettingsView.vue"),
+      meta: { title: "模型设置" },
+    },
+    {
       path: "/:pathMatch(.*)*",
       redirect: "/",
     },

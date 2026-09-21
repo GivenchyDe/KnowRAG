@@ -898,6 +898,21 @@ CORS 白名单、MySQL 编排、`.gitignore` 与 `.gitattributes`。
 - 未填写 Key 时，问答接口返回 MODEL_CONFIG_INVALID 而不是 500。
 - 修改 Embedding 配置会标记索引 stale。
 
+状态：**已完成**（索引 stale 的实际落库标记待 Phase 3 建表后接入，当前已在响应中返回 `index_stale`）。
+实现要点与偏离说明：
+
+- 加密使用 Fernet（`cryptography`），密文以 Text 列存储，明文与密文都不出现在接口响应中。
+- 脱敏格式为 `sk-****abcd`；实现中会先剥掉前缀结尾的 `-`，
+  避免 DeepSeek 这类 `sk-` 开头的 Key 被渲染成 `sk--****abcd`。
+- `PUT` 的字段语义：字段不出现 = 保持原值；API Key 传 `""` = 显式清除；传 `null` = 保持原值。
+  这样前端只需提交改动的字段，不会覆盖读取-修改-写回期间的其他修改。
+- 新增 `GET /api/config/providers` 返回 provider 目录（含默认 base_url、默认模型、推荐模型），
+  前端不硬编码 provider 与模型名。
+- 新增 `POST /api/config/model/test`：仅支持测试 LLM 连接，且**只使用请求中携带的 Key**，
+  不回读库中已保存的 Key——否则该接口会变成一个「用服务端密钥发请求」的通用代理。
+- 连接测试的响应刻意不含供应商原始报文，只按状态码给出可操作提示，
+  防止泄露账号、额度、请求 ID 等细节。
+
 ### Phase 3：文档上传与异步摄取
 
 目标：

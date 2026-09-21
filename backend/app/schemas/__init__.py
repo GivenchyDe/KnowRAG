@@ -8,9 +8,25 @@ from app.schemas.auth import (
     TokenResponse,
     UserResponse,
 )
+from app.schemas.config import (
+    ConnectionTestRequest,
+    ConnectionTestResponse,
+    ModelConfigResponse,
+    ModelConfigUpdate,
+    ModelConfigUpdateResponse,
+    ProviderOptionResponse,
+    ProvidersResponse,
+)
 
 __all__ = [
+    "ConnectionTestRequest",
+    "ConnectionTestResponse",
     "LoginRequest",
+    "ModelConfigResponse",
+    "ModelConfigUpdate",
+    "ModelConfigUpdateResponse",
+    "ProviderOptionResponse",
+    "ProvidersResponse",
     "RefreshRequest",
     "RegisterRequest",
     "RegisterResponse",

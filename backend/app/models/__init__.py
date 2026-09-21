@@ -5,6 +5,7 @@
 漏导入会导致迁移脚本静默漏表。
 """
 
+from app.models.model_config import ModelConfig
 from app.models.user import User
 
-__all__ = ["User"]
+__all__ = ["ModelConfig", "User"]
