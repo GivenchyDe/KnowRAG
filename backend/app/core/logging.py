@@ -20,16 +20,30 @@ _LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
 _DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
-def _quiet_third_party_progress_bars() -> None:
-    """关闭第三方库的进度条与闲聊输出。
+def _prepare_third_party_env() -> None:
+    """在第三方库导入之前调整环境变量。
 
-    必须在导入 sentence_transformers / transformers / huggingface_hub 之前设置，
-    因为它们是在导入时读取这些环境变量的。
+    必须尽早调用（`configure_logging` 在应用启动时执行），
+    因为这些库是在**导入时或首次构造客户端时**读取环境变量的。
 
-    为什么需要：sentence-transformers 每做一次 Rerank 都会往 stderr 写
-    `Batches: 100%|██████████| 1/1 [00:01<00:00, 1.07s/it]`。
-    一次问答就是一条，批量摄取时会把日志彻底淹没，而且这些内容既不是应用日志、
-    也无法通过 logging 配置关掉（它直接写 stderr）。
+    1. 关闭进度条与闲聊输出。
+       sentence-transformers 每做一次 Rerank 都会往 stderr 写
+       `Batches: 100%|██████████| 1/1 [00:01<00:00, 1.07s/it]`。
+       一次问答就是一条，批量摄取时会把日志彻底淹没；而且它直接写 stderr，
+       无法通过 logging 配置关掉。
+
+    2. 让本地回环地址绕过系统代理。**这是必须的**：
+       httpx 在 Windows 上会读取注册表里的系统代理设置
+       （本机 `ProxyEnable=1`、`ProxyServer=127.0.0.1:7897`），
+       而它的 ProxyOverride 解析不支持 `127.*` 这类通配写法，
+       于是连 `127.0.0.1` 的请求也会被交给代理。后果是：
+       - Chroma 未启动时返回的是**代理的 502 Bad Gateway**，而不是清晰的
+         「连接被拒绝」。错误信息完全误导排查方向（实测被带偏两轮，
+         还误以为是超时配置写错）；
+       - 每次这类请求白等约 2.4 秒的代理超时。
+
+       用 NO_PROXY 而不是清空 HTTP_PROXY：前者只影响本地地址，
+       保留了访问外部服务（如模型 API）时走代理的正常能力。
     """
     os.environ.setdefault("TQDM_DISABLE", "1")
     os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
@@ -38,10 +52,18 @@ def _quiet_third_party_progress_bars() -> None:
     # 关闭 Chroma 的匿名遥测。
     os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
 
+    # 本地地址绕过代理。大小写两种写法都设置：不同库的读取方式不一致。
+    local_hosts = "127.0.0.1,localhost,::1"
+    existing = os.environ.get("NO_PROXY", "")
+    if local_hosts not in existing:
+        merged = f"{existing},{local_hosts}" if existing else local_hosts
+        os.environ["NO_PROXY"] = merged
+        os.environ["no_proxy"] = merged
+
 
 def configure_logging(settings: Settings) -> None:
     """初始化根 logger。应在应用启动时调用一次。"""
-    _quiet_third_party_progress_bars()
+    _prepare_third_party_env()
     level = getattr(logging, settings.log_level.upper(), logging.INFO)
 
     handler = logging.StreamHandler(stream=sys.stdout)
