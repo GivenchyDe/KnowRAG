@@ -11,11 +11,14 @@
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
+    "dompurify": "^3.2.4",
+    "markdown-it": "^14.1.0",
     "pinia": "^2.3.0",
     "vue": "^3.5.13",
     "vue-router": "^4.5.0"
   },
   "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
     "@vitejs/plugin-vue": "^5.2.1",
     "typescript": "~5.8.2",
     "vite": "^6.2.0",

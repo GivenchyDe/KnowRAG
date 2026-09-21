@@ -8,6 +8,16 @@ from app.schemas.auth import (
     TokenResponse,
     UserResponse,
 )
+from app.schemas.chat import (
+    ChatStreamRequest,
+    ConversationListResponse,
+    ConversationResponse,
+    CreateConversationRequest,
+    DeleteConversationResponse,
+    MessageListResponse,
+    MessageResponse,
+    SourceItem,
+)
 from app.schemas.config import (
     ConnectionTestRequest,
     ConnectionTestResponse,
@@ -28,13 +38,20 @@ from app.schemas.documents import (
 )
 
 __all__ = [
+    "ChatStreamRequest",
     "ConnectionTestRequest",
     "ConnectionTestResponse",
+    "ConversationListResponse",
+    "ConversationResponse",
+    "CreateConversationRequest",
+    "DeleteConversationResponse",
     "DeleteDocumentResponse",
     "DocumentListResponse",
     "DocumentResponse",
     "IndexStatusResponse",
     "LoginRequest",
+    "MessageListResponse",
+    "MessageResponse",
     "ModelConfigResponse",
     "ModelConfigUpdate",
     "ModelConfigUpdateResponse",
@@ -44,6 +61,7 @@ __all__ = [
     "RefreshRequest",
     "RegisterRequest",
     "RegisterResponse",
+    "SourceItem",
     "TaskResponse",
     "TokenResponse",
     "UploadResponse",

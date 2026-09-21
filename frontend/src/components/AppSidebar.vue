@@ -1,31 +1,60 @@
 <script setup lang="ts">
+import { onMounted } from "vue";
 import { RouterLink, useRoute, useRouter } from "vue-router";
 
+import ConversationList from "@/components/ConversationList.vue";
 import { useAuthStore } from "@/stores/auth";
+import { useChatStore } from "@/stores/chat";
 
 /**
  * 左侧边栏。
  *
  * 设计依据：`docs/UI_DESIGN_PROMPT.md`「应用布局」第 1 节——顶部品牌、
- * 功能入口、底部当前用户与退出登录。
+ * 新建会话按钮、会话历史列表、功能入口、底部当前用户与退出登录。
  *
- * Phase 1 只放已实现的入口；会话历史列表属于 Phase 4（AppSidebar 的完整形态），
- * 文档管理与模型设置分别在 Phase 3、Phase 2。这里不渲染尚不可用的菜单项，
- * 避免用户点到空白页。
+ * 会话列表只在聊天页显示：在文档页/设置页里展示会话列表会让侧边栏显得杂乱，
+ * 且点击后要跳转页面，与「切换会话」的预期不符。
  */
 
 const auth = useAuthStore();
+const chat = useChatStore();
 const router = useRouter();
 const route = useRoute();
 
+const isChatPage = () => route.path === "/";
+
 async function handleLogout(): Promise<void> {
   auth.logout();
+  // 登出时清空问答状态：否则下一个登录的用户会看到上一个用户的会话列表残留。
+  chat.reset();
   await router.replace({ path: "/login" });
 }
 
 function isActive(path: string): boolean {
   return route.path === path;
 }
+
+async function handleNewConversation(): Promise<void> {
+  await chat.newConversation();
+  if (!isChatPage()) {
+    await router.push("/");
+  }
+}
+
+async function handleSelectConversation(conversationId: string): Promise<void> {
+  if (!isChatPage()) {
+    await router.push("/");
+  }
+  await chat.openConversation(conversationId);
+}
+
+onMounted(() => {
+  // 侧边栏在任何页面都会渲染，这里确保会话列表已加载（store 内部无缓存判断，
+  // 因此只在尚未加载过时请求一次）。
+  if (chat.conversations.length === 0) {
+    void chat.loadConversations();
+  }
+});
 </script>
 
 <template>
@@ -48,28 +77,38 @@ function isActive(path: string): boolean {
       </div>
     </div>
 
-    <nav class="sidebar__nav" aria-label="主导航">
-      <RouterLink class="nav-item" :class="{ 'nav-item--active': isActive('/') }" to="/">
+    <!-- 会话区：仅聊天页显示 -->
+    <div v-if="isChatPage()" class="sidebar__conv">
+      <ConversationList
+        :conversations="chat.conversations"
+        :active-id="chat.conversationId"
+        :loading="chat.loadingConversations"
+        @create="handleNewConversation"
+        @select="handleSelectConversation"
+        @remove="chat.removeConversation($event)"
+      />
+    </div>
+
+    <nav v-else class="sidebar__nav" aria-label="主导航">
+      <RouterLink class="nav-item" :class="{ 'nav-item--active': true }" to="/">
         <span class="nav-item__icon" aria-hidden="true">◆</span>
-        <span class="nav-item__text">知识库问答</span>
+        <span class="nav-item__text">返回问答</span>
       </RouterLink>
-      <RouterLink
-        class="nav-item"
-        :class="{ 'nav-item--active': isActive('/documents') }"
-        to="/documents"
-      >
+    </nav>
+
+    <nav class="sidebar__links" aria-label="功能入口">
+      <RouterLink class="nav-item" :class="{ 'nav-item--active': isActive('/documents') }" to="/documents">
         <span class="nav-item__icon" aria-hidden="true">▤</span>
         <span class="nav-item__text">文档管理</span>
       </RouterLink>
-      <RouterLink
-        class="nav-item"
-        :class="{ 'nav-item--active': isActive('/settings') }"
-        to="/settings"
-      >
+      <RouterLink class="nav-item" :class="{ 'nav-item--active': isActive('/history') }" to="/history">
+        <span class="nav-item__icon" aria-hidden="true">≡</span>
+        <span class="nav-item__text">会话历史</span>
+      </RouterLink>
+      <RouterLink class="nav-item" :class="{ 'nav-item--active': isActive('/settings') }" to="/settings">
         <span class="nav-item__icon" aria-hidden="true">⚙</span>
         <span class="nav-item__text">模型设置</span>
       </RouterLink>
-      <p class="nav-note">会话历史（Phase 4）将在后续阶段开放。</p>
     </nav>
 
     <div class="sidebar__user">
@@ -134,6 +173,23 @@ function isActive(path: string): boolean {
   gap: var(--kr-space-2);
   flex: 1;
   min-height: 0;
+}
+
+/* 会话区：占据剩余空间并允许内部滚动 */
+.sidebar__conv {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar__links {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: none;
+  padding-top: var(--kr-space-3);
+  border-top: 1px solid var(--kr-border);
 }
 
 .nav-item {
@@ -239,6 +295,8 @@ function isActive(path: string): boolean {
   .brand-text,
   .nav-item__text,
   .nav-note,
+  .sidebar__conv,
+  .sidebar__links,
   .user-name,
   .logout {
     display: none;

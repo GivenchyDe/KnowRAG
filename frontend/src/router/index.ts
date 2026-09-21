@@ -9,8 +9,8 @@ import { useAuthStore } from "@/stores/auth";
  * 采用「默认拒绝」而不是「默认放开」：漏标一个 meta 的后果是页面打不开（可立即发现），
  * 而不是把受保护页面暴露出去（很难发现）。
  *
- * 后续阶段按 `docs/DESIGN_IMPLEMENTATION.md` 第 8.1 节补入：
- *   Phase 4  /history
+ * 六个页面（`docs/DESIGN_IMPLEMENTATION.md` 第 8.1 节）已全部实现：
+ * `/login`、`/register`、`/`（问答）、`/documents`、`/settings`、`/history`。
  */
 const router = createRouter({
   history: createWebHistory(),
@@ -38,6 +38,12 @@ const router = createRouter({
       name: "documents",
       component: () => import("@/views/DocumentsView.vue"),
       meta: { title: "文档管理" },
+    },
+    {
+      path: "/history",
+      name: "history",
+      component: () => import("@/views/HistoryView.vue"),
+      meta: { title: "会话历史" },
     },
     {
       path: "/settings",

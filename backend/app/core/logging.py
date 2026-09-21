@@ -11,6 +11,7 @@ Phase 5 增加结构化日志与指标时再评估是否升级。
 from __future__ import annotations
 
 import logging
+import os
 import sys
 
 from app.core.config import Settings
@@ -19,8 +20,28 @@ _LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
 _DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
+def _quiet_third_party_progress_bars() -> None:
+    """关闭第三方库的进度条与闲聊输出。
+
+    必须在导入 sentence_transformers / transformers / huggingface_hub 之前设置，
+    因为它们是在导入时读取这些环境变量的。
+
+    为什么需要：sentence-transformers 每做一次 Rerank 都会往 stderr 写
+    `Batches: 100%|██████████| 1/1 [00:01<00:00, 1.07s/it]`。
+    一次问答就是一条，批量摄取时会把日志彻底淹没，而且这些内容既不是应用日志、
+    也无法通过 logging 配置关掉（它直接写 stderr）。
+    """
+    os.environ.setdefault("TQDM_DISABLE", "1")
+    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+    os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+    os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+    # 关闭 Chroma 的匿名遥测。
+    os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+
+
 def configure_logging(settings: Settings) -> None:
     """初始化根 logger。应在应用启动时调用一次。"""
+    _quiet_third_party_progress_bars()
     level = getattr(logging, settings.log_level.upper(), logging.INFO)
 
     handler = logging.StreamHandler(stream=sys.stdout)
