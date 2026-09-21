@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import secrets
 from datetime import timedelta
 from enum import StrEnum
 from typing import Any
@@ -52,6 +53,17 @@ def _create_token(user_id: int, token_type: TokenType, expires_delta: timedelta)
         "typ": token_type.value,
         "iat": issued_at,
         "exp": issued_at + expires_delta,
+        # jti 让每个 token 唯一。
+        #
+        # 为什么必须有它：JWT 的 iat / exp 会被编码为**秒级**时间戳，
+        # 同一秒内为同一用户签发同一类型的 token，payload 完全相同，
+        # HMAC 签名也就完全相同——两个 token 逐字节一致。
+        # 这会造成两个实际问题：
+        # 1. 刷新不生效：前端在 token 即将过期时刷新，拿到的"新" token 因为落在同一秒，
+        #    过期时间并未后移，于是每个请求都会再次触发刷新，形成刷新风暴；
+        # 2. token 轮换形同虚设：refresh 时"换发"的新 token 与旧的完全相同，
+        #    旧凭据并未失效。
+        "jti": secrets.token_urlsafe(12),
     }
     return jwt.encode(payload, settings.jwt_secret, algorithm=_JWT_ALGORITHM)
 

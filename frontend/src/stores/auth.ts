@@ -2,8 +2,9 @@ import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 
 import * as authApi from "@/api/auth";
+import { refreshTokens } from "@/api/client";
 import { clearTokens, getAccessToken, getRefreshToken, saveTokens } from "@/auth/tokenStorage";
-import { isApiError, toErrorMessage } from "@/types/errors";
+import { toErrorMessage } from "@/types/errors";
 import type { LoginRequest, RegisterRequest, TokenResponse, User } from "@/types/auth";
 
 /**
@@ -45,46 +46,38 @@ export const useAuthStore = defineStore("auth", () => {
   /**
    * 用 refresh token 换取新的 token 对。
    *
-   * 之所以在恢复会话时先刷新而不是先用现有 access token 请求 `/auth/me`：
+   * 实际请求由 `api/client.ts` 的 `refreshTokens()` 完成（并发去重也由它保证：
+   * 多个请求同时发现 token 过期时只刷新一次）。这里只负责更新本地状态。
+   *
+   * 为什么要在恢复会话时先刷新而不是先用现有 access token 请求 `/auth/me`：
    * access token 只有 30 分钟有效期，用户隔天打开页面时必然已过期，
    * 先刷新可以避免一次注定失败的请求，也避免把「过期」当作「未登录」处理。
    */
   async function refreshSession(): Promise<boolean> {
-    const current = refreshToken.value;
-    if (!current) {
+    if (!refreshToken.value) {
       return false;
     }
-    try {
-      const tokens = await authApi.refresh(current);
-      applyTokens(tokens);
-      return true;
-    } catch {
+    const refreshed = await refreshTokens();
+    if (!refreshed) {
       // refresh token 也失效（过期或已被轮换）→ 视为未登录，清理本地残留。
       clearSession();
       return false;
     }
+    accessToken.value = getAccessToken();
+    refreshToken.value = getRefreshToken();
+    return true;
   }
 
   async function fetchCurrentUser(): Promise<boolean> {
-    const token = accessToken.value;
-    if (!token) {
+    if (!accessToken.value) {
       return false;
     }
     try {
-      user.value = await authApi.fetchCurrentUser(token);
+      // token 由 api/client.ts 自动附加；401 时的刷新与重试也在那一层完成，
+      // 因此这里不再需要手动捕获 UNAUTHORIZED 再重试一遍。
+      user.value = await authApi.fetchCurrentUser();
       return true;
-    } catch (error) {
-      // access token 可能在页面停留期间过期，这里补一次刷新再重试，
-      // 否则用户会莫名其妙被踢回登录页。
-      if (isApiError(error) && error.code === "UNAUTHORIZED" && (await refreshSession())) {
-        try {
-          user.value = await authApi.fetchCurrentUser(accessToken.value ?? "");
-          return true;
-        } catch {
-          clearSession();
-          return false;
-        }
-      }
+    } catch {
       clearSession();
       return false;
     }
