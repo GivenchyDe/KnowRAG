@@ -1,9 +1,11 @@
-# KnowRAG 本地编排（Phase 0 骨架）
+# KnowRAG 本地编排（Phase 0 骨架 + MySQL）
 #
 # 说明：按 docs/DESIGN_IMPLEMENTATION.md 第 11.2 节的规划，完整编排应包含
 # backend / frontend / postgres / chroma / worker 五个服务。
-# Phase 0 尚未实现数据库、向量库与摄取 worker，因此这里只保留 backend 与 frontend，
-# 不提前声明当前代码用不到的服务；对应服务将在 Phase 3、Phase 6 接入。
+# 当前状态：
+#   - backend / frontend 已就绪；
+#   - mysql 已加入（对应设计文档中的 postgres，选型变更原因见 backend/app/core/config.py）；
+#   - chroma 与 worker 尚未加入，将在 Phase 3、Phase 4 引入。
 #
 # 使用方式：
 #   1) 复制 .env.example 为 .env
@@ -22,11 +24,39 @@ services:
       - .env
     environment:
       # 容器内访问宿主服务的地址与本地开发不同，这里覆盖为编排网络内的服务名，
-      # 避免把 localhost 带进容器导致连不上数据库 / 向量库。
+      # 避免把 127.0.0.1 带进容器导致连不上数据库。
+      # 注意：本地开发连的是宿主机已有的 MySQL 8.0，容器内连的是下面的 mysql 服务，
+      # 两者是不同的库，不要误以为是同一份数据。
       APP_ENV: ${APP_ENV:-development}
-      DATABASE_URL: postgresql+psycopg://knowrag:knowrag@postgres:5432/knowrag
+      DATABASE_URL: mysql+pymysql://root:123456@mysql:3306/knowrag?charset=utf8mb4
       CHROMA_HOST: chroma
       CHROMA_PORT: "8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Phase 1 起启用：后端需要数据库才能完成迁移与启动。
+  # 选型说明：设计文档原定 postgres:15，因本地开发环境为 MySQL 8.0 而统一为 MySQL，
+  # 避免开发与部署两套方言（jsonb/timestamptz 等）产生行为差异。
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: "123456"
+      MYSQL_DATABASE: knowrag
+    command:
+      # 服务端默认字符集与排序规则，必须与本地开发库保持一致，
+      # 否则 username / email 的唯一约束在两种环境下表现不同。
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    volumes:
+      - mysqldata:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p123456"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     restart: unless-stopped
 
   frontend:
@@ -41,3 +71,7 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
+
+volumes:
+  # MySQL 数据持久化；删除该卷等同于清空数据库，需重新执行 alembic upgrade head。
+  mysqldata:

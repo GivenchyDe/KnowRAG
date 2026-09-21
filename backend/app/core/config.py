@@ -39,8 +39,14 @@ class Settings(BaseSettings):
     fernet_key: str = Field(default="", description="API Key 对称加密密钥，需为合法 Fernet key")
 
     # --- 数据库与向量库（Phase 1 / Phase 3 使用）---
+    # 数据库选型偏离说明：docs/DESIGN_IMPLEMENTATION.md 原定 PostgreSQL，
+    # 但本机只提供 MySQL 8.0（数据目录通过 DataGrip 管理），且 7 张业务表均为
+    # 「主键 + 外键 + 时间戳 + 少量 JSON」的常规结构，未使用任何 PostgreSQL 专有能力
+    # （数组类型、jsonb 的 GIN 索引、全文检索、PostGIS），因此切换为 MySQL 无架构损失。
+    # 对应调整：jsonb -> JSON、timestamptz -> DATETIME，且全库使用 utf8mb4_0900_ai_ci
+    # 排序规则（大小写不敏感），避免 username / email 唯一约束被大小写变体绕过。
     database_url: str = Field(
-        default="postgresql+psycopg://knowrag:knowrag@localhost:5432/knowrag",
+        default="mysql+pymysql://root:123456@127.0.0.1:3306/knowrag?charset=utf8mb4",
         description="关系数据库连接串",
     )
     chroma_host: str = Field(default="localhost", description="Chroma 服务地址")
