@@ -70,8 +70,24 @@ def get_chroma_client() -> Any:
                     settings.chroma_host,
                     settings.chroma_port,
                 )
+                # 连接超时不在这里配置。
+                #
+                # 排查记录（避免后人重复踩坑）：
+                # 曾经在此传入 chroma_server_http_timeout_seconds /
+                # chroma_server_connect_timeout_seconds——这两个字段在本版本
+                # （chromadb 1.5.9）的 Settings 里**并不存在**（实测被静默忽略），
+                # 所以完全没有效果。本版本也没有可注入自定义 httpx client 的字段。
+                #
+                # 真正导致「Chroma 未启动时耗时约 5 秒且报 502」的原因是
+                # **系统代理**：httpx 在 Windows 上读取注册表代理设置，
+                # 把 127.0.0.1 也交给了代理。修复位于
+                # `app/core/logging.py` 的 `_prepare_third_party_env()`
+                # （设置 NO_PROXY 让本地地址直连），修复后耗时降到约 3.5 秒，
+                # 且错误从误导性的 502 变成准确的「连接被拒绝」。
+                # 剩余的建连重试耗时由 httpx 内部控制，本版本无法调整。
                 client = chromadb.HttpClient(
-                    host=settings.chroma_host, port=settings.chroma_port
+                    host=settings.chroma_host,
+                    port=settings.chroma_port,
                 )
                 # 主动发一次心跳：HttpClient 的构造是惰性的，不探测的话
                 # 连接失败会推迟到第一次写入时才暴露，错误位置更难定位。
