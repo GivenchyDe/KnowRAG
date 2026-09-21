@@ -1,5 +1,4 @@
-import { request } from "@/api/client";
-import { getAccessToken } from "@/auth/tokenStorage";
+import { fetchWithAuth, request } from "@/api/client";
 import type {
   ChatStreamRequest,
   Conversation,
@@ -12,20 +11,15 @@ import type {
 /**
  * 问答与会话接口。
  *
- * 流式接口不能用 `api/client.ts` 的通用 `request`：它会把响应读成完整文本，
- * 而 SSE 需要边到达边处理。因此这里单独实现，但保持与 client 一致的
- * 错误契约解析（`{code, message, trace_id}`）。
+ * 流式接口不能用通用的 `request`：它会把响应读成完整文本，
+ * 而 SSE 需要边到达边处理。因此这里用 `fetchWithAuth` 拿到原始响应流——
+ * 该函数由 `api/client.ts` 提供，已包含**认证头注入、提前刷新、401 重试**，
+ * 与普通请求走同一套 token 逻辑，不会因为换了调用方式就丢掉认证处理。
  */
-
-function authHeaders(): Record<string, string> {
-  const token = getAccessToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 export async function fetchConversations(): Promise<ConversationListResponse> {
   return request<ConversationListResponse>("/api/chat/conversations", {
     absolutePath: true,
-    headers: authHeaders(),
     query: { page: 1, page_size: 100 },
   });
 }
@@ -35,7 +29,6 @@ export async function createConversation(title?: string): Promise<Conversation> 
     method: "POST",
     json: { title: title ?? null },
     absolutePath: true,
-    headers: authHeaders(),
   });
 }
 
@@ -43,14 +36,13 @@ export async function deleteConversation(conversationId: string): Promise<void> 
   await request<unknown>(`/api/chat/conversations/${encodeURIComponent(conversationId)}`, {
     method: "DELETE",
     absolutePath: true,
-    headers: authHeaders(),
   });
 }
 
 export async function fetchMessages(conversationId: string): Promise<MessageListResponse> {
   return request<MessageListResponse>(
     `/api/chat/conversations/${encodeURIComponent(conversationId)}/messages`,
-    { absolutePath: true, headers: authHeaders() },
+    { absolutePath: true },
   );
 }
 
@@ -66,15 +58,28 @@ export async function streamChat(
   handlers: StreamHandlers,
   signal?: AbortSignal,
 ): Promise<void> {
-  const response = await fetch("/api/chat/stream", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...authHeaders() },
-    body: JSON.stringify(payload),
-    signal,
-  });
+  let response: Response;
+  try {
+    response = await fetchWithAuth("/api/chat/stream", {
+      method: "POST",
+      json: payload,
+      absolutePath: true,
+      signal,
+      // 流式回答可能持续较久，超时取 10 分钟（与服务端的最长等待一致）。
+      timeoutMs: 600_000,
+    });
+  } catch (error) {
+    // 网络层失败（含 fetchWithAuth 抛出的「登录已过期」）统一交给 onError，
+    // 由 store 决定展示方式，调用方不需要再写 try/catch。
+    handlers.onError?.({
+      code: "INTERNAL_ERROR",
+      message: error instanceof Error ? error.message : "无法连接后端服务",
+    });
+    return;
+  }
 
   if (!response.ok) {
-    // 请求在进入流式之前就失败（如参数错误、未登录），此时响应是普通 JSON 错误体。
+    // 请求在进入流式之前就失败（如未登录 401、参数错误 422），此时响应是普通 JSON 错误体。
     let code = "INTERNAL_ERROR";
     let message = `请求失败（HTTP ${response.status}）`;
     let traceId: string | undefined;

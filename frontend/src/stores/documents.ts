@@ -2,7 +2,6 @@ import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 
 import * as docsApi from "@/api/documents";
-import { useAuthStore } from "@/stores/auth";
 import { toErrorMessage } from "@/types/errors";
 import type {
   ActiveTask,
@@ -23,10 +22,11 @@ const POLL_TIMEOUT_MS = 10 * 60 * 1000;
  * `setInterval` 在前一次请求未返回时会继续发下一次，任务多时容易堆积请求；
  * 递归定时器保证「上一次结束才排下一次」。
  * 退出本页时必须调用 `stopPolling()`，否则组件卸载后定时器仍在跑。
+ *
+ * 认证由 `api/client.ts` 统一处理（注入 token、过期提前刷新、401 重试），
+ * 本 store 不再需要持有或传递 token。
  */
 export const useDocumentStore = defineStore("documents", () => {
-  const auth = useAuthStore();
-
   const documents = ref<DocumentItem[]>([]);
   const statusSummary = ref<Record<string, number>>({});
   const indexInfo = ref<IndexStatusInfo | null>(null);
@@ -55,7 +55,7 @@ export const useDocumentStore = defineStore("documents", () => {
   async function loadDocuments(): Promise<void> {
     loading.value = true;
     try {
-      const result = await docsApi.fetchDocuments(auth.accessToken, { page: 1, page_size: 100 });
+      const result = await docsApi.fetchDocuments({ page: 1, page_size: 100 });
       documents.value = result.items;
       statusSummary.value = result.status_summary;
     } catch (error) {
@@ -68,7 +68,7 @@ export const useDocumentStore = defineStore("documents", () => {
 
   async function loadIndexStatus(): Promise<void> {
     try {
-      indexInfo.value = await docsApi.fetchIndexStatus(auth.accessToken);
+      indexInfo.value = await docsApi.fetchIndexStatus();
     } catch (error) {
       // 索引状态失败不应连带让文档列表也报错：
       // 例如 Chroma 不可用时，用户仍然需要看到自己的文档列表才能排查问题。
@@ -94,7 +94,7 @@ export const useDocumentStore = defineStore("documents", () => {
       }
 
       try {
-        const result = await docsApi.fetchTask(auth.accessToken, task.taskId);
+        const result = await docsApi.fetchTask(task.taskId);
         task.status = result.status;
         task.progress = result.progress;
         task.error = result.error;
@@ -146,7 +146,7 @@ export const useDocumentStore = defineStore("documents", () => {
 
     for (const file of files) {
       try {
-        const result = await docsApi.uploadDocument(auth.accessToken, file);
+        const result = await docsApi.uploadDocument(file);
         const task: ActiveTask = {
           taskId: result.task_id,
           documentId: result.document_id,
@@ -176,7 +176,7 @@ export const useDocumentStore = defineStore("documents", () => {
     errorMessage.value = null;
     noticeMessage.value = null;
     try {
-      const result = await docsApi.deleteDocument(auth.accessToken, documentId);
+      const result = await docsApi.deleteDocument(documentId);
       noticeMessage.value = result.message;
       await refreshAll();
     } catch (error) {
@@ -190,7 +190,7 @@ export const useDocumentStore = defineStore("documents", () => {
     errorMessage.value = null;
     noticeMessage.value = null;
     try {
-      const result = await docsApi.rebuildIndex(auth.accessToken);
+      const result = await docsApi.rebuildIndex();
       noticeMessage.value = result.message;
       if (result.task_id) {
         const task: ActiveTask = {

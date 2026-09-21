@@ -33,6 +33,11 @@ const registeredHint = computed(() => {
   return typeof raw === "string" && raw.length > 0 ? `账号「${raw}」注册成功，请登录` : null;
 });
 
+/** 会话过期被自动登出时的提示。`?expired=1` 由 api/client.ts 的失效回调写入。 */
+const expiredHint = computed(() =>
+  route.query.expired === "1" ? "登录已过期，请重新登录" : null,
+);
+
 function resolveRedirect(): string {
   const raw = route.query.redirect;
   const target = typeof raw === "string" ? raw : "/";
@@ -79,6 +84,9 @@ async function handleSubmit(): Promise<void> {
       </header>
 
       <form class="auth-form" novalidate @submit.prevent="handleSubmit">
+        <p v-if="expiredHint" class="form-alert form-alert--warning" role="status">
+          {{ expiredHint }}
+        </p>
         <p v-if="registeredHint" class="form-alert form-alert--success" role="status">
           {{ registeredHint }}
         </p>
@@ -257,6 +265,11 @@ async function handleSubmit(): Promise<void> {
 .form-alert--success {
   color: var(--kr-success);
   background: var(--kr-success-soft);
+}
+
+.form-alert--warning {
+  color: var(--kr-warning);
+  background: var(--kr-warning-soft);
 }
 
 .auth-foot {

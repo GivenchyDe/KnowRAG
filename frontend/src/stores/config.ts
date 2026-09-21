@@ -2,7 +2,6 @@ import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 
 import * as configApi from "@/api/config";
-import { useAuthStore } from "@/stores/auth";
 import { toErrorMessage } from "@/types/errors";
 import type {
   ConnectionTestRequest,
@@ -16,12 +15,10 @@ import type {
 /**
  * 全局模型配置状态。
  *
- * 与 authStore 的关系：本 store 依赖 authStore 提供 token，反之不成立。
- * 这是单向依赖，不会形成循环。
+ * 认证由 `api/client.ts` 统一处理（注入 token、过期提前刷新、401 重试），
+ * 本 store 不再需要持有或传递 token。
  */
 export const useConfigStore = defineStore("config", () => {
-  const auth = useAuthStore();
-
   const config = ref<ModelConfig | null>(null);
   const providers = ref<ProvidersResponse | null>(null);
   const loading = ref(false);
@@ -40,7 +37,7 @@ export const useConfigStore = defineStore("config", () => {
     loading.value = true;
     errorMessage.value = null;
     try {
-      config.value = await configApi.fetchModelConfig(auth.accessToken);
+      config.value = await configApi.fetchModelConfig();
     } catch (error) {
       errorMessage.value = toErrorMessage(error);
       throw error;
@@ -60,7 +57,7 @@ export const useConfigStore = defineStore("config", () => {
       return;
     }
     try {
-      providers.value = await configApi.fetchProviders(auth.accessToken);
+      providers.value = await configApi.fetchProviders();
     } catch (error) {
       errorMessage.value = toErrorMessage(error);
     }
@@ -70,11 +67,11 @@ export const useConfigStore = defineStore("config", () => {
     saving.value = true;
     errorMessage.value = null;
     try {
-      const result = await configApi.updateModelConfig(payload, auth.accessToken);
+      const result = await configApi.updateModelConfig(payload);
       lastIndexStale.value = result.index_stale;
       // 保存后重新拉取：后端会补齐「切换 provider 时的默认模型名 / base_url」，
       // 不回读的话表单里显示的仍是用户输入的旧值，与实际生效配置不一致。
-      config.value = await configApi.fetchModelConfig(auth.accessToken);
+      config.value = await configApi.fetchModelConfig();
       return result;
     } catch (error) {
       errorMessage.value = toErrorMessage(error);
@@ -85,7 +82,7 @@ export const useConfigStore = defineStore("config", () => {
   }
 
   async function testConnection(payload: ConnectionTestRequest): Promise<ConnectionTestResult> {
-    return configApi.testConnection(payload, auth.accessToken);
+    return configApi.testConnection(payload);
   }
 
   function clearError(): void {
