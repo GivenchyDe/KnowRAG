@@ -10,8 +10,17 @@ uvicorn[standard]>=0.30,<1.0
 pydantic>=2.7,<3.0
 pydantic-settings>=2.3,<3.0
 
+# Phase 1 数据库：MySQL 8.0（偏离设计文档原定的 PostgreSQL，原因见 app/core/config.py）
+# pymysql 为纯 Python 驱动，无需编译工具链，是 SQLAlchemy + Alembic 连 MySQL 的最小选择。
+SQLAlchemy>=2.0,<3.0
+alembic>=1.13,<2.0
+pymysql>=1.1,<2.0
+
 # 以下依赖按阶段引入，启用前请先确认本机 conda 环境是否已安装：
-#   Phase 1 用户系统   : SQLAlchemy[asyncio]、alembic、passlib[bcrypt]（本机缺 alembic、passlib，已有 bcrypt 5.0.0）
+#   Phase 1 密码哈希   : bcrypt（本机已有 5.0.0；设计文档原写 passlib[bcrypt]，
+#                        因 passlib 长期未更新且与 bcrypt 5.x 存在已知兼容问题，改用 bcrypt 直调，
+#                        属于对设计文档的偏离，原因见 backend/app/security/password.py 注释）
 #   Phase 2 模型配置   : cryptography（本机已有 50.0.1）
 #   Phase 3 文档摄取   : python-multipart、chromadb、llama-index-*（本机已有）
 #   Phase 4 RAG 问答   : llama-index-llms-deepseek / dashscope、sentence-transformers（本机已有）
+#   Phase 3+ 可选存储  : pymongo / motor（docstore）、redis（chat_store）（本机已有）
