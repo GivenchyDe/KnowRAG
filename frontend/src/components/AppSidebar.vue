@@ -51,9 +51,17 @@ function isActive(path: string): boolean {
     <nav class="sidebar__nav" aria-label="主导航">
       <RouterLink class="nav-item" :class="{ 'nav-item--active': isActive('/') }" to="/">
         <span class="nav-item__icon" aria-hidden="true">◆</span>
-        知识库问答
+        <span class="nav-item__text">知识库问答</span>
       </RouterLink>
-      <p class="nav-note">文档管理（Phase 3）、模型设置（Phase 2）、会话历史（Phase 4）将在后续阶段开放。</p>
+      <RouterLink
+        class="nav-item"
+        :class="{ 'nav-item--active': isActive('/settings') }"
+        to="/settings"
+      >
+        <span class="nav-item__icon" aria-hidden="true">⚙</span>
+        <span class="nav-item__text">模型设置</span>
+      </RouterLink>
+      <p class="nav-note">文档管理（Phase 3）、会话历史（Phase 4）将在后续阶段开放。</p>
     </nav>
 
     <div class="sidebar__user">
@@ -221,7 +229,7 @@ function isActive(path: string): boolean {
   }
 
   .brand-text,
-  .nav-item span:not(.nav-item__icon),
+  .nav-item__text,
   .nav-note,
   .user-name,
   .logout {

@@ -1,20 +1,23 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
+import { RouterLink } from "vue-router";
 
 import { useAuthStore } from "@/stores/auth";
+import { useConfigStore } from "@/stores/config";
 
 /**
- * 知识库问答主页面（Phase 1 形态）。
+ * 知识库问答主页面（Phase 2 形态）。
  *
- * 当前阶段只验证「登录后进入受保护页面」这条链路，因此：
- * - 展示已登录用户信息，证明 JWT 鉴权与 /auth/me 生效；
- * - 保留设计文档要求的页面骨架（顶部状态条 + 空状态 + 底部输入区），
- *   但输入区为禁用状态，避免出现「能输入却无响应」的空壳交互。
+ * 当前阶段验证的是「登录后进入受保护页面」与「模型配置是否就绪」两条链路：
+ * - 顶部状态条展示当前 LLM provider / 模型名与 API Key 是否已配置；
+ * - 未配置 Key 时给出直达设置页的入口；
+ * - 输入区保持禁用，避免出现「能输入却无响应」的空壳交互。
  *
  * 后续阶段：Phase 3 接入文档与索引状态，Phase 4 接入 SSE 流式问答与引用来源。
  */
 
 const auth = useAuthStore();
+const configStore = useConfigStore();
 
 const userCreatedAt = computed(() => {
   const raw = auth.user?.created_at;
@@ -27,14 +30,33 @@ const userCreatedAt = computed(() => {
   return Number.isNaN(date.getTime()) ? raw : date.toLocaleString();
 });
 
+const modelLabel = computed(() => {
+  const config = configStore.config;
+  if (!config) {
+    return "读取中…";
+  }
+  return `${config.llm_model}（${config.llm_provider}）`;
+});
+
+const keyReady = computed(() => configStore.config?.llm_api_key_masked != null);
+
+/** 模型服务是否就绪：需要 provider 目录里存在该取值且已配置 Key。 */
+const modelReady = computed(() => configStore.config !== null && keyReady.value);
+
 /** 展示给用户的阶段说明，与 docs/DESIGN_IMPLEMENTATION.md 第 12 节对应。 */
 const upcoming = [
-  { phase: "Phase 2", desc: "全局模型配置：填写 LLM / Embedding / Reranker 的 API Key" },
   { phase: "Phase 3", desc: "文档上传与异步摄取：解析、切块、写入向量库" },
   { phase: "Phase 4", desc: "流式问答：SSE 输出、引用来源、会话历史" },
 ] as const;
 
 const showDetails = ref(true);
+
+onMounted(() => {
+  // 配置已在设置页加载过时不会重复请求（store 内部有缓存判断）。
+  void configStore.load().catch(() => {
+    // 失败时 store 已记录 errorMessage，页面用「读取失败」状态展示即可。
+  });
+});
 </script>
 
 <template>
@@ -42,12 +64,12 @@ const showDetails = ref(true);
     <header class="topbar">
       <div class="topbar__title">
         <h1>知识库问答</h1>
-        <p>当前处于 Phase 1：用户系统已就绪，问答能力待后续阶段接入</p>
+        <p>当前为 Phase 2：用户系统与模型配置已就绪，问答能力待后续阶段接入</p>
       </div>
       <div class="topbar__status">
-        <span class="kr-badge kr-badge--neutral">
+        <span class="kr-badge" :class="modelReady ? 'kr-badge--success' : 'kr-badge--warning'">
           <span class="kr-dot"></span>
-          模型未配置
+          {{ modelReady ? "模型已配置" : "模型待配置" }}
         </span>
         <button class="toggle" type="button" @click="showDetails = !showDetails">
           {{ showDetails ? "收起详情" : "展开详情" }}
@@ -57,47 +79,55 @@ const showDetails = ref(true);
 
     <div class="content">
       <section v-if="showDetails" class="kr-panel card">
-        <h2 class="card__title">登录状态</h2>
+        <h2 class="card__title">当前状态</h2>
         <dl class="info">
           <div class="info__row">
-            <dt>用户名</dt>
-            <dd>{{ auth.user?.username }}</dd>
-          </div>
-          <div class="info__row">
-            <dt>用户 ID</dt>
-            <dd>{{ auth.user?.id }}</dd>
-          </div>
-          <div class="info__row">
-            <dt>邮箱</dt>
-            <dd>{{ auth.user?.email ?? "未填写" }}</dd>
-          </div>
-          <div class="info__row">
-            <dt>账号状态</dt>
+            <dt>登录用户</dt>
             <dd>
-              <span
-                class="kr-badge"
-                :class="auth.user?.is_active ? 'kr-badge--success' : 'kr-badge--danger'"
-              >
-                {{ auth.user?.is_active ? "正常" : "已禁用" }}
-              </span>
+              {{ auth.user?.username }}
+              <span class="info__muted">（ID {{ auth.user?.id }}，注册于 {{ userCreatedAt }}）</span>
             </dd>
           </div>
           <div class="info__row">
-            <dt>注册时间</dt>
-            <dd>{{ userCreatedAt }}</dd>
+            <dt>对话模型</dt>
+            <dd>{{ modelLabel }}</dd>
+          </div>
+          <div class="info__row">
+            <dt>API Key</dt>
+            <dd>
+              <template v-if="keyReady">
+                <code class="info__code">{{ configStore.config?.llm_api_key_masked }}</code>
+                <span class="info__muted">已加密存储</span>
+              </template>
+              <template v-else>
+                <span class="info__warn">尚未填写</span>
+                <RouterLink class="info__link" to="/settings">去设置</RouterLink>
+              </template>
+            </dd>
+          </div>
+          <div class="info__row">
+            <dt>向量模型</dt>
+            <dd>
+              {{ configStore.config ? `${configStore.config.embed_model}（${configStore.config.embed_provider}）` : "读取中…" }}
+            </dd>
+          </div>
+          <div class="info__row">
+            <dt>重排模型</dt>
+            <dd>
+              {{ configStore.config ? `${configStore.config.rerank_model}（${configStore.config.rerank_provider}）` : "读取中…" }}
+            </dd>
           </div>
         </dl>
         <p class="card__hint">
-          以上数据来自 <code>GET /auth/me</code>，说明 JWT 鉴权与用户隔离已生效。
+          以上配置来自 <code>GET /api/config/model</code>，可在
+          <RouterLink class="info__link" to="/settings">模型设置</RouterLink> 中修改。
         </p>
       </section>
 
       <section class="kr-panel card empty">
         <div class="empty__mark" aria-hidden="true">◇</div>
         <h2 class="empty__title">还没有可问答的知识库</h2>
-        <p class="empty__desc">
-          完成后续两个阶段后，即可上传文档并基于自己的知识库提问：
-        </p>
+        <p class="empty__desc">完成后续阶段后，即可上传文档并基于自己的知识库提问：</p>
         <ul class="steps">
           <li v-for="item in upcoming" :key="item.phase" class="steps__item">
             <span class="steps__tag">{{ item.phase }}</span>
@@ -234,7 +264,30 @@ const showDetails = ref(true);
 .info__row dd {
   margin: 0;
   font-size: 13.5px;
-  word-break: break-all;
+  word-break: break-word;
+  min-width: 0;
+}
+
+.info__muted {
+  font-size: 12px;
+  color: var(--kr-text-muted);
+  margin-left: var(--kr-space-2);
+}
+
+.info__code {
+  font-size: 12.5px;
+  padding: 1px 6px;
+  border-radius: var(--kr-radius-sm);
+  background: rgba(20, 24, 35, 0.05);
+}
+
+.info__warn {
+  color: var(--kr-warning);
+}
+
+.info__link {
+  margin-left: var(--kr-space-3);
+  font-size: 12.5px;
 }
 
 .empty {
