@@ -7,9 +7,17 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# 项目根目录：backend/app/core/config.py -> backend/app/core -> backend/app -> backend -> 根
+_PROJECT_ROOT = Path(__file__).resolve().parents[3]
+_ENV_FILE = _PROJECT_ROOT / ".env"
+
+# HS256 的密钥长度下限。RFC 7518 3.2 要求 HMAC 密钥不短于哈希输出长度（SHA-256 为 256 位）。
+_MIN_JWT_SECRET_BYTES = 32
 
 
 class Settings(BaseSettings):
@@ -19,8 +27,10 @@ class Settings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        # 环境变量优先于 .env 文件，便于容器环境覆盖镜像内默认值。
-        env_file=".env",
+        # 必须用绝对路径：`.env` 按设计放在项目根目录，而后端进程的工作目录通常是
+        # backend/。用相对路径 ".env" 会静默读不到文件，导致所有配置回退到默认值
+        # ——包括 JWT_SECRET 回退成 "change-me"，使签名密钥形同虚设。
+        env_file=str(_ENV_FILE),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -36,6 +46,7 @@ class Settings(BaseSettings):
     # --- 安全（Phase 1 / Phase 2 使用，Phase 0 仅做配置占位与校验）---
     jwt_secret: str = Field(default="change-me", description="JWT 签名密钥")
     jwt_expire_minutes: int = Field(default=30, description="access token 有效期（分钟）")
+    jwt_refresh_expire_days: int = Field(default=7, description="refresh token 有效期（天）")
     fernet_key: str = Field(default="", description="API Key 对称加密密钥，需为合法 Fernet key")
 
     # --- 数据库与向量库（Phase 1 / Phase 3 使用）---
@@ -49,6 +60,7 @@ class Settings(BaseSettings):
         default="mysql+pymysql://root:123456@127.0.0.1:3306/knowrag?charset=utf8mb4",
         description="关系数据库连接串",
     )
+    database_echo: bool = Field(default=False, description="是否打印 SQLAlchemy 生成的 SQL，仅排查问题时开启")
     chroma_host: str = Field(default="localhost", description="Chroma 服务地址")
     chroma_port: int = Field(default=8000, description="Chroma 服务端口")
 
@@ -74,6 +86,43 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         """是否为生产环境。生产环境需要更严格的默认行为（如关闭 /docs）。"""
         return self.app_env.lower() == "production"
+
+    @model_validator(mode="after")
+    def _validate_secrets(self) -> Settings:
+        """在生产环境拒绝占位密钥，避免「带着 change-me 上线」。
+
+        只在生产环境强校验：本地开发允许使用占位值，否则脚手架无法开箱即跑。
+        之所以仍然检查，是因为用弱密钥签发的 JWT 可被伪造，
+        而这类问题一旦上线很难被发现（接口表现完全正常）。
+        """
+        if not self.is_production:
+            return self
+
+        if self.jwt_secret in {"", "change-me"}:
+            raise ValueError(
+                "生产环境必须设置真实的 JWT_SECRET，生成方式："
+                'python -c "import secrets; print(secrets.token_urlsafe(48))"'
+            )
+        if len(self.jwt_secret.encode("utf-8")) < _MIN_JWT_SECRET_BYTES:
+            raise ValueError(
+                f"生产环境的 JWT_SECRET 至少需要 {_MIN_JWT_SECRET_BYTES} 字节"
+                "（RFC 7518 对 HS256 的要求）"
+            )
+        if not self.debug:
+            return self
+        raise ValueError("生产环境必须设置 DEBUG=false")
+
+    @property
+    def jwt_secret_is_weak(self) -> bool:
+        """当前 JWT 密钥是否为占位值或长度不足。
+
+        供调用方在启动时打印告警，让「本地用了弱密钥」这件事可见，
+        而不是只在签发 token 时由 PyJWT 抛出容易被忽略的 warning。
+        """
+        return (
+            self.jwt_secret in {"", "change-me"}
+            or len(self.jwt_secret.encode("utf-8")) < _MIN_JWT_SECRET_BYTES
+        )
 
 
 @lru_cache(maxsize=1)

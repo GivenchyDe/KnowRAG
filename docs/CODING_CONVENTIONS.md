@@ -327,7 +327,7 @@ data: {"code":"INDEX_NOT_READY","message":"...","trace_id":"..."}
 
 | 类型 | 规范 | 示例 |
 | ---- | ---- | ---- |
-| 表名 | 复数 `snake_case` | `user_model_configs` |
+| 表名 | 复数 `snake_case` | `model_configs` |
 | 字段名 | `snake_case` | `created_at` |
 | 外键 | `{table_singular}_id` | `user_id` |
 | 时间字段 | `created_at` / `updated_at` | `updated_at` |

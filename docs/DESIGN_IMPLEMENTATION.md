@@ -18,7 +18,7 @@
 - 支持索引版本管理，避免不同 Embedding 模型和切块策略混用。
 - 支持流式问答、引用来源展示、多会话历史管理。
 - 支持 RAG 质量评测、trace_id 日志追踪、性能指标统计。
-- 支持 Docker Compose 一键启动后端、前端、PostgreSQL、Chroma、worker。
+- 支持 Docker Compose 一键启动后端、前端、MySQL、Chroma、worker。
 
 ### 1.2 非目标
 
@@ -39,7 +39,7 @@
 | FastAPI | HTTP API、SSE 流式接口 |
 | SQLAlchemy 2.x | ORM |
 | Alembic | 数据库迁移 |
-| PostgreSQL | 用户、配置、任务、会话、索引元数据 |
+| MySQL 8.0 | 用户、配置、任务、会话、索引元数据 |
 | Chroma | 向量存储 |
 | LlamaIndex / LangChain 可二选一 | RAG 管道封装 |
 | sentence-transformers | 本地 Embedding / Reranker |
@@ -68,7 +68,7 @@
 | ---- | ---- |
 | backend | FastAPI API 服务 |
 | frontend | Nginx 托管 Vue 构建产物 |
-| postgres | 关系数据库 |
+| mysql | 关系数据库 |
 | chroma | 向量数据库 |
 | worker | 文档摄取后台任务 |
 
@@ -91,7 +91,7 @@ KnowRAG/
 │   │   │   └── init_db.py
 │   │   ├── models/
 │   │   │   ├── user.py
-│   │   │   ├── user_model_config.py
+│   │   │   ├── model_config.py
 │   │   │   ├── document.py
 │   │   │   ├── ingestion_task.py
 │   │   │   ├── knowledge_base_index.py
@@ -159,6 +159,42 @@ KnowRAG/
 
 ## 4. 数据库设计
 
+### 4.0 数据库选型与类型映射
+
+数据库使用 **MySQL 8.0**，驱动为 `pymysql`，连接串形如
+`mysql+pymysql://root:123456@127.0.0.1:3306/knowrag?charset=utf8mb4`。
+
+**选型变更说明**：本设计早期版本定的是 PostgreSQL。变更原因是本机开发环境只提供
+MySQL 8.0，而本项目的 7 张业务表均为「主键 + 外键 + 时间戳 + 少量 JSON」的常规结构，
+**未使用任何 PostgreSQL 专有能力**（数组类型、`jsonb` 的 GIN 索引、全文检索、PostGIS），
+因此改用 MySQL 不产生架构损失，同时避免开发环境与部署环境使用两套 SQL 方言。
+
+**类型映射规则**（下文各表已按 MySQL 类型书写，可直接照此编写 ORM 模型）：
+
+| PostgreSQL 原类型 | MySQL 类型 | 说明 |
+| ---- | ---- | ---- |
+| `bigint` | `BIGINT` | SQLAlchemy 侧统一写 `BigInteger`，作为主键时配 `autoincrement=True` |
+| `varchar(n)` | `VARCHAR(n)` | 需指定长度；MySQL 索引对长度敏感，`varchar(255)` 以内可安全建唯一索引 |
+| `boolean` | `TINYINT(1)` | SQLAlchemy 侧写 `Boolean`，由 MySQL 自动映射为 `TINYINT(1)` |
+| `DATETIME(6)` | `DATETIME(6)` | MySQL 的 `DATETIME` **不存时区**，统一约定「所有时间按 UTC 写入、按 UTC 读出」 |
+| `jsonb` | `JSON` | MySQL 8.0 原生 `JSON` 类型；本项目的 JSON 字段只做整体读写，不建 JSON 索引，故无功能缺失 |
+| `uuid` | `CHAR(36)` | MySQL 无原生 UUID 类型，统一以字符串存储，由应用层生成 |
+
+**字符集与排序规则**（必须显式固定，不能依赖服务器默认值）：
+
+```sql
+CREATE DATABASE knowrag DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+```
+
+`utf8mb4_0900_ai_ci` 中的 `ci` 表示 **case-insensitive（大小写不敏感）**。这是主动选择：
+它让 `users.username` 与 `users.email` 的唯一约束把 `Alice` 与 `alice` 视为同一用户，
+防止用大小写变体注册出仿冒账号。注意 MySQL 的 `ci` 同时也不区分重音字符，
+若后续需要严格区分（例如区分 `a` 与 `á`），需改为 `utf8mb4_0900_as_cs`。
+
+**时区约定**：由于 `DATETIME` 不存时区，应用层统一使用 UTC：
+`created_at`、`updated_at` 等字段一律写 UTC 时间，在 API 响应中按 ISO 8601 输出时
+带 `Z` 后缀，由前端按用户本地时区渲染。不要混入本地时间，否则跨时区会出现时间错乱。
+
 ### 4.1 users
 
 | 字段 | 类型 | 约束 | 说明 |
@@ -168,15 +204,23 @@ KnowRAG/
 | `email` | varchar(255) | unique, nullable | 邮箱 |
 | `hashed_password` | varchar(255) | not null | bcrypt 哈希 |
 | `is_active` | boolean | default true | 是否启用 |
-| `created_at` | timestamptz | not null | 创建时间 |
-| `updated_at` | timestamptz | not null | 更新时间 |
+| `created_at` | DATETIME(6) | not null | 创建时间 |
+| `updated_at` | DATETIME(6) | not null | 更新时间 |
 
-### 4.2 user_model_configs
+### 4.2 model_configs
+
+> **模型配置从「按用户」改为「全局单行」**：模型 API Key 不再由管理员预先写入，
+> 而是等系统交付后，由用户在设置页自行填写。因此该表不再与 `users` 一对一绑定，
+> 而是保存**全局唯一一行**配置（`user_id` 为可空，用于将来需要区分来源时定位修改者）。
+> 表名相应由 `user_model_configs` 改为 `model_configs`。
+>
+> 索引无关性说明：Embedding 与 Reranker provider 改为全局配置后，仍然只有一套取值，
+> 因此 4.5 节的索引版本管理逻辑不受影响，`embedding_changed` 依然只在配置真正变化时触发。
 
 | 字段 | 类型 | 说明 |
 | ---- | ---- | ---- |
 | `id` | bigint PK | 主键 |
-| `user_id` | bigint unique FK | 用户 ID |
+| `user_id` | bigint FK, nullable | 最近一次修改该配置的用户；为空表示尚未被任何用户修改过 |
 | `llm_provider` | varchar(32) | `deepseek` / `qwen` |
 | `llm_api_key_encrypted` | text | 加密后的 LLM API Key |
 | `llm_base_url` | varchar(255) | 可为空 |
@@ -192,14 +236,17 @@ KnowRAG/
 | `rerank_api_key_encrypted` | text | 远程 Reranker Key |
 | `rerank_model` | varchar(128) | Reranker 模型 |
 | `rerank_model_path` | text | 本地模型路径 |
-| `created_at` | timestamptz | 创建时间 |
-| `updated_at` | timestamptz | 更新时间 |
+| `created_at` | DATETIME(6) | 创建时间 |
+| `updated_at` | DATETIME(6) | 更新时间 |
 
 实现要求：
 
 - API Key 入库前必须 Fernet 加密。
+- 该表保持**全局唯一一行**（应用层保证，不依赖数据库唯一约束，因为 `user_id` 可空且可变）。
+- 首次读取时若不存在记录，用 5.2 节的默认 provider 创建该行，而不是返回空配置。
 - GET 配置接口只返回脱敏 Key，不返回明文。
 - PUT 配置接口如果接收到空 Key，表示保持原 Key；如果接收到新 Key，则替换。
+- PUT 时把当前 `user_id` 写入该行，便于审计「谁改过全局模型配置」。
 - Embedding provider、model、dimension、chunk 参数变化时，调用 `mark_user_index_stale`。
 
 ### 4.3 documents
@@ -214,8 +261,8 @@ KnowRAG/
 | `size_bytes` | bigint | 文件大小 |
 | `sha256` | varchar(64) | 内容哈希，用于去重 |
 | `status` | varchar(32) | `uploaded` / `indexed` / `failed` / `deleted` |
-| `created_at` | timestamptz | 创建时间 |
-| `updated_at` | timestamptz | 更新时间 |
+| `created_at` | DATETIME(6) | 创建时间 |
+| `updated_at` | DATETIME(6) | 更新时间 |
 
 ### 4.4 ingestion_tasks
 
@@ -228,10 +275,10 @@ KnowRAG/
 | `status` | varchar(32) | `pending` / `running` / `success` / `failed` |
 | `progress` | int | 0-100 |
 | `error` | text | 失败原因 |
-| `started_at` | timestamptz | 开始时间 |
-| `finished_at` | timestamptz | 结束时间 |
-| `created_at` | timestamptz | 创建时间 |
-| `updated_at` | timestamptz | 更新时间 |
+| `started_at` | DATETIME(6) | 开始时间 |
+| `finished_at` | DATETIME(6) | 结束时间 |
+| `created_at` | DATETIME(6) | 创建时间 |
+| `updated_at` | DATETIME(6) | 更新时间 |
 
 ### 4.5 knowledge_base_indexes
 
@@ -247,8 +294,8 @@ KnowRAG/
 | `chunk_overlap` | int | 切块重叠 |
 | `index_version` | int | 索引版本 |
 | `status` | varchar(32) | `ready` / `building` / `failed` / `stale` |
-| `created_at` | timestamptz | 创建时间 |
-| `updated_at` | timestamptz | 更新时间 |
+| `created_at` | DATETIME(6) | 创建时间 |
+| `updated_at` | DATETIME(6) | 更新时间 |
 
 索引规则：
 
@@ -265,8 +312,8 @@ KnowRAG/
 | `conversation_id` | uuid | 前端/后端共同使用的会话 ID |
 | `user_id` | bigint FK | 所属用户 |
 | `title` | varchar(255) | 会话标题 |
-| `created_at` | timestamptz | 创建时间 |
-| `updated_at` | timestamptz | 更新时间 |
+| `created_at` | DATETIME(6) | 创建时间 |
+| `updated_at` | DATETIME(6) | 更新时间 |
 
 约束：
 
@@ -282,9 +329,9 @@ KnowRAG/
 | `conversation_id` | uuid | 会话 ID |
 | `role` | varchar(16) | `user` / `assistant` / `system` |
 | `content` | text | 消息内容 |
-| `sources_json` | jsonb | 引用来源 |
+| `sources_json` | JSON | 引用来源 |
 | `trace_id` | uuid | 请求追踪 ID |
-| `created_at` | timestamptz | 创建时间 |
+| `created_at` | DATETIME(6) | 创建时间 |
 
 ---
 
@@ -760,7 +807,7 @@ query
 
 ```env
 APP_ENV=development
-DATABASE_URL=postgresql+psycopg://knowrag:password@postgres:5432/knowrag
+DATABASE_URL=mysql+pymysql://root:123456@mysql:3306/knowrag?charset=utf8mb4
 JWT_SECRET=change-me
 JWT_EXPIRE_MINUTES=30
 FERNET_KEY=generate-with-python
@@ -775,14 +822,14 @@ CORS_ORIGINS=http://localhost:5173
 
 - `backend`：FastAPI。
 - `frontend`：Nginx + Vue 静态资源。
-- `postgres`：关系数据库。
+- `mysql`：关系数据库。
 - `chroma`：向量数据库。
 - `worker`：摄取任务 worker。
 
 ### 11.3 启动顺序
 
 ```text
-postgres/chroma
+mysql/chroma
   -> backend migration
   -> backend API
   -> worker
@@ -808,6 +855,9 @@ postgres/chroma
 - `GET /health` 返回 `{"status":"ok"}`。
 - 前端能访问首页。
 
+状态：**已完成**。补充实现：统一错误契约 `{code, message, trace_id}`、trace_id 中间件、
+CORS 白名单、MySQL 编排、`.gitignore` 与 `.gitattributes`。
+
 ### Phase 1：用户系统
 
 目标：
@@ -821,12 +871,23 @@ postgres/chroma
 - 未登录不能访问 `/api/*`。
 - 登录后可以获取 `/auth/me`。
 
-### Phase 2：用户模型配置
+状态：**已完成**。实现要点与偏离说明：
+
+- 迁移由 Alembic 管理，首个迁移为 `create users table`。
+- 密码哈希使用 **bcrypt 直调**，未采用设计文档原写的 `passlib[bcrypt]`
+  （passlib 长期未更新且与 bcrypt 5.x 存在已知兼容问题），详见 `backend/app/security/password.py`。
+- JWT 使用 **PyJWT**（HS256），未采用 `python-jose`。
+- 登录接口对「用户不存在」也执行一次等价的 bcrypt 校验，抹平响应耗时差异，
+  防止通过计时侧信道枚举用户名。
+- 前端 token 暂存于 localStorage 并走 `Authorization: Bearer`；
+  设计文档建议的 HttpOnly Cookie 方案需配套 CSRF 防护，留到 Phase 5 收敛。
+
+### Phase 2：全局模型配置
 
 目标：
 
-- user_model_configs 表。
-- API Key 加密存储。
+- model_configs 表（全局单行）。
+- API Key 加密存储；**不预置任何 Key，由用户在设置页自行填写**。
 - 模型配置 GET / PUT。
 - 前端设置页。
 
@@ -834,6 +895,7 @@ postgres/chroma
 
 - 数据库无明文 Key。
 - 前端只看到脱敏 Key。
+- 未填写 Key 时，问答接口返回 MODEL_CONFIG_INVALID 而不是 500。
 - 修改 Embedding 配置会标记索引 stale。
 
 ### Phase 3：文档上传与异步摄取
@@ -909,4 +971,4 @@ postgres/chroma
 - 实现异步文档摄取 pipeline，支持上传、解析、切块、Embedding、入库和任务进度追踪。
 - 构建 Dense 检索 + Reranker 的 RAG 问答链路，支持流式输出和引用来源追踪。
 - 建立 RAG 质量评测集，使用 Recall@K、MRR、引用命中率评估检索质量。
-- 使用 Docker Compose 编排 FastAPI、Vue3、PostgreSQL、Chroma、worker，实现一键部署。
+- 使用 Docker Compose 编排 FastAPI、Vue3、MySQL、Chroma、worker，实现一键部署。
