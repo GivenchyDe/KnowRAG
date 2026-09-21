@@ -69,7 +69,7 @@
 ┌──────────────────────────────────────────────────────────────┐
 │                        存储层                                 │
 │  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌───────────┐ │
-│  │ PostgreSQL │ │ Chroma     │ │ docstore   │ │ task_store│ │
+│  │ MySQL      │ │ Chroma     │ │ docstore   │ │ task_store│ │
 │  │ 用户/配置   │ │ 向量库     │ │ 文档/索引   │ │ 聊天/任务  │ │
 │  └────────────┘ └────────────┘ └────────────┘ └───────────┘ │
 └──────────────────────────────────────────────────────────────┘
@@ -119,16 +119,17 @@ metadata={"user_id": user_id}
 
 ---
 
-### 3.2 用户配置表设计
+### 3.2 全局模型配置表设计
 
-用户自行配置 API Key 和模型，需要持久化。
+模型 API Key 与模型名需要持久化。**本表不预置任何 Key**：Key 由用户在设置页自行填写，
+因此配置是**全局一份**，而不是每个用户各存一份（详见 `docs/DESIGN_IMPLEMENTATION.md` 第 4.2 节）。
 
-**表：`user_model_configs`**
+**表：`model_configs`**
 
 | 字段                | 类型     | 说明                                      |
 | ------------------- | -------- | ----------------------------------------- |
-| `id`                | INTEGER  | 主键                                      |
-| `user_id`           | INTEGER  | 外键，唯一关联用户                        |
+| `id`                | BIGINT   | 主键                                      |
+| `user_id`           | BIGINT   | 可空外键，记录最近一次修改该配置的用户    |
 | `llm_provider`      | VARCHAR  | `deepseek` / `qwen`                       |
 | `llm_api_key_encrypted` | TEXT | 加密后的 LLM API Key                      |
 | `llm_base_url`      | VARCHAR  | 可选，默认官方 OpenAI-compatible endpoint |
@@ -792,6 +793,8 @@ export default defineConfig({
 
 ### 10.2 生产环境
 
+> 说明：本地开发与生产部署统一使用 **MySQL 8.0**（原设计的 PostgreSQL 已废弃，原因见 `backend/app/core/config.py` 注释）。
+
 ```yaml
 # docker-compose.yml
 version: "3.8"
@@ -803,7 +806,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql://...
+      - DATABASE_URL=mysql+pymysql://knowrag:...@mysql:3306/knowrag?charset=utf8mb4
       - JWT_SECRET=...
       - FERNET_KEY=...
       - CHROMA_HOST=chroma
@@ -820,14 +823,17 @@ services:
     depends_on:
       - backend
 
-  postgres:
-    image: postgres:15
+  mysql:
+    image: mysql:8.0
+    command:
+      # 必须显式固定，服务端默认值不一致会让 username / email 的唯一约束表现不同。
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
     environment:
-      - POSTGRES_DB=knowrag
-      - POSTGRES_USER=knowrag
-      - POSTGRES_PASSWORD=...
+      - MYSQL_DATABASE=knowrag
+      - MYSQL_ROOT_PASSWORD=...
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - mysqldata:/var/lib/mysql
 
   chroma:
     image: chromadb/chroma:latest
@@ -840,7 +846,7 @@ services:
       dockerfile: ../docker/Dockerfile.backend
     command: python -m app.worker
     environment:
-      - DATABASE_URL=postgresql://...
+      - DATABASE_URL=mysql+pymysql://knowrag:...@mysql:3306/knowrag?charset=utf8mb4
       - FERNET_KEY=...
       - CHROMA_HOST=chroma
       - CHROMA_PORT=8000
@@ -848,11 +854,11 @@ services:
       - ./data:/app/file
     depends_on:
       - backend
-      - postgres
+      - mysql
       - chroma
 
 volumes:
-  pgdata:
+  mysqldata:
   chromadata:
 ```
 
@@ -860,12 +866,12 @@ volumes:
 
 ## 十一、路线图（更新）
 
-当前状态：已完成 README、设计实现文档、UI 设计提示词和代码约定文档；尚未进入工程脚手架编码阶段。
+当前状态：已完成 Phase 0（脚手架）与 Phase 1（用户系统）。
 
 实现路线图以 `docs/DESIGN_IMPLEMENTATION.md` 的 Phase 0-6 为准：
 
-- [ ] Phase 0：项目脚手架
-- [ ] Phase 1：用户系统
+- [x] Phase 0：项目脚手架
+- [x] Phase 1：用户系统
 - [ ] Phase 2：用户模型配置
 - [ ] Phase 3：文档上传与异步摄取
 - [ ] Phase 4：RAG 问答

@@ -19,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import Settings, get_settings
 from app.core.errors import TRACE_ID_STATE_KEY, register_exception_handlers
 from app.core.logging import configure_logging, get_logger
+from app.routers import auth
 
 logger = get_logger(__name__)
 
@@ -79,6 +80,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     register_exception_handlers(app)
 
+    # 认证接口按 docs/CODING_CONVENTIONS.md 第 6.1 节挂在 /auth 前缀下。
+    app.include_router(auth.router)
+
     @app.get("/health", tags=["system"], summary="健康检查")
     async def health() -> dict[str, str]:
         """返回服务状态。用于前端连通性检查与容器 healthcheck。"""
@@ -90,6 +94,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings.app_version,
         settings.cors_origin_list,
     )
+    if settings.jwt_secret_is_weak:
+        # 显式告警而不是静默使用：用弱密钥签发的 JWT 可被伪造，
+        # 而接口行为完全正常，问题很难被察觉。
+        logger.warning(
+            "JWT_SECRET 仍是占位值或长度不足（当前 %d 字节，建议至少 32 字节）。"
+            "本地开发可忽略，部署前必须替换："
+            'python -c "import secrets; print(secrets.token_urlsafe(48))"',
+            len(settings.jwt_secret.encode("utf-8")),
+        )
     return app
 
 
