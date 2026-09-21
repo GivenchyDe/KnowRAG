@@ -12,6 +12,8 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,7 +21,24 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import Settings, get_settings
 from app.core.errors import TRACE_ID_STATE_KEY, register_exception_handlers
 from app.core.logging import configure_logging, get_logger
-from app.routers import auth, config
+from app.routers import auth, config, documents, index
+from app.services import ingestion_service
+
+logger = get_logger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """应用生命周期钩子。
+
+    启动时清理上次进程退出遗留的 pending / running 摄取任务：
+    线程池里的任务不会跨进程存活，不清理的话前端会一直轮询一个永不推进的任务。
+    """
+    reaped = ingestion_service.reap_stale_tasks()
+    if reaped:
+        logger.warning("启动清理：已将 %d 个中断的摄取任务标记为失败", reaped)
+    yield
+    ingestion_service.shutdown_executor()
 
 logger = get_logger(__name__)
 
@@ -35,6 +54,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
+        lifespan=lifespan,
         # 生产环境关闭交互式文档，减少对外暴露的接口信息面。
         docs_url=None if settings.is_production else "/docs",
         redoc_url=None if settings.is_production else "/redoc",
@@ -84,6 +104,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth.router)
     # 配置接口挂在 /api/config 前缀下。
     app.include_router(config.router)
+    # 文档与索引接口。
+    app.include_router(documents.router)
+    app.include_router(index.router)
 
     @app.get("/health", tags=["system"], summary="健康检查")
     async def health() -> dict[str, str]:

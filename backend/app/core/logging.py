@@ -36,6 +36,18 @@ def configure_logging(settings: Settings) -> None:
     logging.getLogger("uvicorn.access").disabled = True
     logging.getLogger("uvicorn.error").setLevel(level)
 
+    # httpx 默认按 INFO 记录每一个出站请求。我们通过 httpx 与 Chroma 通信，
+    # 一次批量摄取会产生几十条「HTTP Request: POST .../upsert "HTTP/1.1 200 OK"」，
+    # 足以把应用自身的日志淹没（实测一条 873 字节的文档就能刷出多条）。
+    # 只保留 WARNING 及以上：连接失败等异常仍然可见，正常请求不再刷屏。
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+
+    # Chroma 客户端同样有自己的 INFO 日志。
+    logging.getLogger("chromadb").setLevel(logging.WARNING)
+    # pymongo 的连接与心跳日志在长连接下会持续输出。
+    logging.getLogger("pymongo").setLevel(logging.WARNING)
+
 
 def get_logger(name: str) -> logging.Logger:
     """获取模块级 logger。"""

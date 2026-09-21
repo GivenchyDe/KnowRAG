@@ -4,20 +4,24 @@ import { RouterLink } from "vue-router";
 
 import { useAuthStore } from "@/stores/auth";
 import { useConfigStore } from "@/stores/config";
+import { useDocumentStore } from "@/stores/documents";
+import { IndexStatus } from "@/types/documents";
 
 /**
- * 知识库问答主页面（Phase 2 形态）。
+ * 知识库问答主页面（Phase 3 形态）。
  *
- * 当前阶段验证的是「登录后进入受保护页面」与「模型配置是否就绪」两条链路：
- * - 顶部状态条展示当前 LLM provider / 模型名与 API Key 是否已配置；
- * - 未配置 Key 时给出直达设置页的入口；
- * - 输入区保持禁用，避免出现「能输入却无响应」的空壳交互。
+ * 当前阶段验证的是三条链路：
+ * - 登录后进入受保护页面（Phase 1）；
+ * - 模型配置是否就绪（Phase 2）；
+ * - 知识库是否已建立可用索引（Phase 3）。
  *
- * 后续阶段：Phase 3 接入文档与索引状态，Phase 4 接入 SSE 流式问答与引用来源。
+ * 输入区仍然禁用：问答链路属于 Phase 4，提前放开会变成「能输入却没响应」的空壳。
+ * 但索引状态会提前展示，让用户知道现在缺的是文档还是模型。
  */
 
 const auth = useAuthStore();
 const configStore = useConfigStore();
+const documentStore = useDocumentStore();
 
 const userCreatedAt = computed(() => {
   const raw = auth.user?.created_at;
@@ -43,9 +47,15 @@ const keyReady = computed(() => configStore.config?.llm_api_key_masked != null);
 /** 模型服务是否就绪：需要 provider 目录里存在该取值且已配置 Key。 */
 const modelReady = computed(() => configStore.config !== null && keyReady.value);
 
+/** 知识库索引是否可用。可用 = 有已索引文档且后端判定状态为 ready。 */
+const indexReady = computed(() => documentStore.indexInfo?.status === IndexStatus.READY);
+
+const indexMessage = computed(
+  () => documentStore.indexInfo?.message ?? "正在读取知识库状态…",
+);
+
 /** 展示给用户的阶段说明，与 docs/DESIGN_IMPLEMENTATION.md 第 12 节对应。 */
 const upcoming = [
-  { phase: "Phase 3", desc: "文档上传与异步摄取：解析、切块、写入向量库" },
   { phase: "Phase 4", desc: "流式问答：SSE 输出、引用来源、会话历史" },
 ] as const;
 
@@ -56,6 +66,7 @@ onMounted(() => {
   void configStore.load().catch(() => {
     // 失败时 store 已记录 errorMessage，页面用「读取失败」状态展示即可。
   });
+  void documentStore.loadIndexStatus();
 });
 </script>
 
@@ -70,6 +81,10 @@ onMounted(() => {
         <span class="kr-badge" :class="modelReady ? 'kr-badge--success' : 'kr-badge--warning'">
           <span class="kr-dot"></span>
           {{ modelReady ? "模型已配置" : "模型待配置" }}
+        </span>
+        <span class="kr-badge" :class="indexReady ? 'kr-badge--success' : 'kr-badge--warning'">
+          <span class="kr-dot"></span>
+          {{ indexReady ? "知识库就绪" : "知识库未就绪" }}
         </span>
         <button class="toggle" type="button" @click="showDetails = !showDetails">
           {{ showDetails ? "收起详情" : "展开详情" }}
@@ -117,6 +132,15 @@ onMounted(() => {
               {{ configStore.config ? `${configStore.config.rerank_model}（${configStore.config.rerank_provider}）` : "读取中…" }}
             </dd>
           </div>
+          <div class="info__row">
+            <dt>知识库</dt>
+            <dd>
+              <span :class="indexReady ? '' : 'info__warn'">{{ indexMessage }}</span>
+              <RouterLink class="info__link" to="/documents">
+                {{ documentStore.hasDocuments ? "管理文档" : "去上传文档" }}
+              </RouterLink>
+            </dd>
+          </div>
         </dl>
         <p class="card__hint">
           以上配置来自 <code>GET /api/config/model</code>，可在
@@ -126,8 +150,10 @@ onMounted(() => {
 
       <section class="kr-panel card empty">
         <div class="empty__mark" aria-hidden="true">◇</div>
-        <h2 class="empty__title">还没有可问答的知识库</h2>
-        <p class="empty__desc">完成后续阶段后，即可上传文档并基于自己的知识库提问：</p>
+        <h2 class="empty__title">问答能力将在 Phase 4 开放</h2>
+        <p class="empty__desc">
+          知识库已可用，检索与流式回答尚未接入。届时即可基于你上传的文档提问。
+        </p>
         <ul class="steps">
           <li v-for="item in upcoming" :key="item.phase" class="steps__item">
             <span class="steps__tag">{{ item.phase }}</span>

@@ -10,7 +10,7 @@ import { useAuthStore } from "@/stores/auth";
  * 而不是把受保护页面暴露出去（很难发现）。
  *
  * 后续阶段按 `docs/DESIGN_IMPLEMENTATION.md` 第 8.1 节补入：
- *   Phase 2  /settings   Phase 3  /documents   Phase 4  /history
+ *   Phase 4  /history
  */
 const router = createRouter({
   history: createWebHistory(),
@@ -32,6 +32,12 @@ const router = createRouter({
       name: "home",
       component: () => import("@/views/ChatView.vue"),
       meta: { title: "知识库问答" },
+    },
+    {
+      path: "/documents",
+      name: "documents",
+      component: () => import("@/views/DocumentsView.vue"),
+      meta: { title: "文档管理" },
     },
     {
       path: "/settings",

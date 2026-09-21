@@ -17,19 +17,35 @@ from app.schemas.config import (
     ProviderOptionResponse,
     ProvidersResponse,
 )
+from app.schemas.documents import (
+    DeleteDocumentResponse,
+    DocumentListResponse,
+    DocumentResponse,
+    IndexStatusResponse,
+    RebuildResponse,
+    TaskResponse,
+    UploadResponse,
+)
 
 __all__ = [
     "ConnectionTestRequest",
     "ConnectionTestResponse",
+    "DeleteDocumentResponse",
+    "DocumentListResponse",
+    "DocumentResponse",
+    "IndexStatusResponse",
     "LoginRequest",
     "ModelConfigResponse",
     "ModelConfigUpdate",
     "ModelConfigUpdateResponse",
     "ProviderOptionResponse",
     "ProvidersResponse",
+    "RebuildResponse",
     "RefreshRequest",
     "RegisterRequest",
     "RegisterResponse",
+    "TaskResponse",
     "TokenResponse",
+    "UploadResponse",
     "UserResponse",
 ]

@@ -826,6 +826,27 @@ CORS_ORIGINS=http://localhost:5173
 - `chroma`：向量数据库。
 - `worker`：摄取任务 worker。
 
+### 11.2.1 本地开发环境（实际配置）
+
+本机开发不依赖 Docker，各组件直接以进程方式运行：
+
+| 组件 | 启动方式 | 端口 |
+| ---- | ---- | ---- |
+| MySQL 8.0 | 本机已有服务 | 3306 |
+| MongoDB | 本机已有服务 | 27017 |
+| Chroma | `chroma run --host 127.0.0.1 --port 8001 --path E:\Agent\develop\chroma` | 8001 |
+| backend | `uvicorn app.main:app --reload --port 8000` | 8000 |
+| frontend | `npm run dev` | 5173 |
+
+端口说明：Chroma 使用 **8001** 而非本节前文写的 8000，因为 FastAPI 本身占用 8000，
+同一台机器上必须错开。后端通过 `CHROMA_MODE=server` 连接该服务；
+`.env.example` 默认给 `embedded`（进程内读写本地 sqlite 文件），
+让别人 clone 后不装 Chroma 也能把后端跑起来。
+
+Chroma 客户端采用**懒加载**：不在应用启动时连接，而是在真正使用向量库时才建立连接。
+否则 Chroma 未启动会导致整个后端启动失败，用户连登录页都打不开，
+只能看到 500 而不是「向量库不可用」这种可操作的提示。
+
 ### 11.3 启动顺序
 
 ```text
@@ -928,6 +949,35 @@ CORS 白名单、MySQL 编排、`.gitignore` 与 `.gitattributes`。
 - 上传后立即返回 task_id。
 - task 最终 success。
 - index status 变为 ready。
+
+状态：**已完成**。实现要点与偏离说明：
+
+- **执行模型偏离**：设计文档建议初期用 FastAPI `BackgroundTasks`，实际改用
+  **进程内线程池**（`concurrent.futures.ThreadPoolExecutor`，2 个 worker）。
+  原因：`BackgroundTasks` 依附单次 HTTP 请求生命周期，无法承载「重建索引时批量重跑
+  全部文档」这类没有请求上下文的场景，也没有并发上限——同时上传 10 个文件会起 10 个
+  后台任务把内存打满。Phase 6 换成独立 worker 进程时只需替换 `enqueue` 的实现。
+- **DocStore 选型**：使用 MongoDB（`knowrag` 库），每个用户一个 **namespace**
+  （`user_{id}`），而不是每用户一个数据库——`MongoDocumentStore` 通过 namespace
+  在同一库内用集合后缀隔离。与本机既有的 `llama_index`、`llama_md_report` 库完全隔离。
+- **索引版本切换**：重建时写入新集合（`user_{id}_kb_v{n}`），成功后再 `mark_ready`
+  并切换，旧集合并行保留。不在旧集合上原地清空——那样一旦构建失败，
+  用户连原本可用的索引都会失去。
+- **新增 `embedding_signature` 列**：索引表除 provider/model/dimension 外，
+  额外存一列「构建指纹」（provider|model|dimension|本地模型路径）。
+  必须存指纹而非逐列比较：本地模型路径没有独立列，而它变化时向量空间同样改变，
+  只比较 provider/model 会漏判，导致换了本地模型目录后旧索引仍被当作可用。
+- **删除顺序**：先清向量与 DocStore 节点，再改数据库状态。反过来做的话，
+  清向量失败时数据库已标记删除，用户看到列表里没了但检索仍能命中，极难排查。
+- **上传去重**：同用户内按 sha256 去重，重复上传返回 422。不跨用户去重——
+  否则可以通过「是否重复」推断出别人上传过什么。
+- **支持格式**：PDF、DOCX、TXT、Markdown、CSV。空文本解析结果直接判失败，
+  避免写入无意义向量却显示「索引成功」。
+- **`/api/index/status` 的状态一致性**：当已索引文档数为 0 时，即使数据库里索引状态
+  是 ready 也对外报 stale。否则会出现「status=ready 但 message=请先上传文档」这种
+  自相矛盾的响应，误导前端显示「索引可用」。
+- 启动时会清理上次进程退出遗留的 pending/running 任务（标记为失败），
+  否则前端会一直轮询一个永远不会推进的任务。
 
 ### Phase 4：RAG 问答
 
