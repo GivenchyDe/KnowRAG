@@ -1,0 +1,43 @@
+# KnowRAG 本地编排（Phase 0 骨架）
+#
+# 说明：按 docs/DESIGN_IMPLEMENTATION.md 第 11.2 节的规划，完整编排应包含
+# backend / frontend / postgres / chroma / worker 五个服务。
+# Phase 0 尚未实现数据库、向量库与摄取 worker，因此这里只保留 backend 与 frontend，
+# 不提前声明当前代码用不到的服务；对应服务将在 Phase 3、Phase 6 接入。
+#
+# 使用方式：
+#   1) 复制 .env.example 为 .env
+#   2) docker compose up --build
+#   3) 浏览器访问 http://localhost:5173
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: knowrag-backend:0.1.0
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      # 容器内访问宿主服务的地址与本地开发不同，这里覆盖为编排网络内的服务名，
+      # 避免把 localhost 带进容器导致连不上数据库 / 向量库。
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE_URL: postgresql+psycopg://knowrag:knowrag@postgres:5432/knowrag
+      CHROMA_HOST: chroma
+      CHROMA_PORT: "8000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: knowrag-frontend:0.1.0
+    ports:
+      # 开发直连 5173，与本地 npm run dev 的端口保持一致；
+      # Phase 6 再改为 80:80 并补 Nginx 反向代理配置。
+      - "5173:80"
+    depends_on:
+      - backend
+    restart: unless-stopped

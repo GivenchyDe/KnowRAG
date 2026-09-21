@@ -1,0 +1,25 @@
+# =============================================================================
+# 换行符规范化
+# -----------------------------------------------------------------------------
+# 仓库在 Windows 上开发、在 Linux 容器（Dockerfile / docker-compose）中运行，
+# 必须固定文本文件的换行符，否则容器内的 shell 脚本会因 CRLF 报
+# "exec format error" 或 "bad interpreter"。
+# =============================================================================
+
+# 默认：交由 Git 自动判断，仓库内存为 LF
+* text=auto eol=lf
+
+# Windows 专用脚本保留 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# 二进制文件不做换行转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.pdf binary

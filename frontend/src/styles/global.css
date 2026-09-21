@@ -1,0 +1,179 @@
+/**
+ * 全局样式与 design tokens。
+ *
+ * 取值来源：docs/UI_DESIGN_PROMPT.md 的「颜色建议」。
+ * UI 约定：浅色低饱和、圆角 12-18px、极轻阴影、浅灰透明边框、充足留白。
+ * 全局只定义 token 与少量基础元素样式，组件样式一律写在各自的 <style scoped> 中。
+ */
+
+:root {
+  /* 背景与面板 */
+  --kr-bg: #f7f8fa;
+  --kr-panel: rgba(255, 255, 255, 0.72);
+  --kr-panel-solid: #ffffff;
+  --kr-border: rgba(20, 24, 35, 0.08);
+  --kr-border-strong: rgba(20, 24, 35, 0.14);
+
+  /* 文字 */
+  --kr-text: #18202f;
+  --kr-text-secondary: #6b7280;
+  --kr-text-muted: #9ca3af;
+
+  /* 语义色 */
+  --kr-primary: #4f7dff;
+  --kr-primary-soft: rgba(79, 125, 255, 0.1);
+  --kr-success: #16a34a;
+  --kr-success-soft: rgba(22, 163, 74, 0.1);
+  --kr-warning: #d97706;
+  --kr-warning-soft: rgba(217, 119, 6, 0.1);
+  --kr-danger: #dc2626;
+  --kr-danger-soft: rgba(220, 38, 38, 0.1);
+
+  /* 圆角 */
+  --kr-radius-sm: 8px;
+  --kr-radius: 12px;
+  --kr-radius-lg: 18px;
+  --kr-radius-pill: 999px;
+
+  /* 阴影：保持非常轻，避免厚重投影 */
+  --kr-shadow-sm: 0 1px 2px rgba(20, 24, 35, 0.04);
+  --kr-shadow: 0 4px 16px rgba(20, 24, 35, 0.06);
+
+  /* 字体与间距 */
+  --kr-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  --kr-font-mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  --kr-space-1: 4px;
+  --kr-space-2: 8px;
+  --kr-space-3: 12px;
+  --kr-space-4: 16px;
+  --kr-space-5: 24px;
+  --kr-space-6: 32px;
+  --kr-space-7: 48px;
+
+  --kr-transition: 160ms ease;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--kr-font);
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--kr-text);
+  /* 极轻微的冷色渐变，不喧宾夺主 */
+  background:
+    radial-gradient(1200px 600px at 15% -10%, rgba(79, 125, 255, 0.06), transparent 60%),
+    var(--kr-bg);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--kr-primary);
+  text-decoration: none;
+  transition: color var(--kr-transition);
+}
+
+a:hover {
+  color: #3a63d8;
+}
+
+code,
+pre {
+  font-family: var(--kr-font-mono);
+}
+
+/* --- 通用面板：轻微磨砂玻璃质感 --- */
+.kr-panel {
+  background: var(--kr-panel);
+  border: 1px solid var(--kr-border);
+  border-radius: var(--kr-radius-lg);
+  box-shadow: var(--kr-shadow-sm);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* --- 状态标签 --- */
+.kr-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--kr-space-2);
+  padding: 3px 10px;
+  border-radius: var(--kr-radius-pill);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+.kr-badge--success {
+  color: var(--kr-success);
+  background: var(--kr-success-soft);
+}
+
+.kr-badge--warning {
+  color: var(--kr-warning);
+  background: var(--kr-warning-soft);
+}
+
+.kr-badge--danger {
+  color: var(--kr-danger);
+  background: var(--kr-danger-soft);
+}
+
+.kr-badge--neutral {
+  color: var(--kr-text-secondary);
+  background: rgba(20, 24, 35, 0.05);
+}
+
+/* --- 状态圆点 --- */
+.kr-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+
+/* --- 焦点可见性：键盘可达性，不影响鼠标交互视觉 --- */
+:focus-visible {
+  outline: 2px solid var(--kr-primary);
+  outline-offset: 2px;
+}
+
+/* --- 减少动效偏好 --- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

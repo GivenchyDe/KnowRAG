@@ -1,0 +1,49 @@
+# =============================================================================
+# KnowRAG 忽略规则
+# =============================================================================
+
+# --- 密钥与环境变量（安全硬性要求，见 docs/CODING_CONVENTIONS.md 第 9 节）---
+# .env 保存 JWT_SECRET 与 FERNET_KEY，绝对不允许提交；只提交 .env.example。
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.venv/
+venv/
+env/
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- Node / 前端 ---
+node_modules/
+frontend/dist/
+.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- 运行期数据（Phase 3 起产生：上传文档、向量库、聊天存储、日志）---
+backend/file/
+data/
+*.sqlite3
+*.db
+
+# --- 编辑器与操作系统 ---
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
