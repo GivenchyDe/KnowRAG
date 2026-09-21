@@ -866,7 +866,7 @@ volumes:
 
 ## 十一、路线图（更新）
 
-当前状态：已完成 Phase 0（脚手架）、Phase 1（用户系统）、Phase 2（全局模型配置）与 Phase 3（文档上传与异步摄取）。
+当前状态：已完成 Phase 0-4（脚手架、用户系统、全局模型配置、文档摄取、RAG 问答）。
 
 实现路线图以 `docs/DESIGN_IMPLEMENTATION.md` 的 Phase 0-6 为准：
 
@@ -874,7 +874,7 @@ volumes:
 - [x] Phase 1：用户系统
 - [x] Phase 2：用户模型配置
 - [x] Phase 3：文档上传与异步摄取
-- [ ] Phase 4：RAG 问答
+- [x] Phase 4：RAG 问答
 - [ ] Phase 5：隔离、安全、质量
 - [ ] Phase 6：Docker 与简历包装
 

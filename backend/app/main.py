@@ -21,7 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import Settings, get_settings
 from app.core.errors import TRACE_ID_STATE_KEY, register_exception_handlers
 from app.core.logging import configure_logging, get_logger
-from app.routers import auth, config, documents, index
+from app.routers import auth, chat, config, documents, index
 from app.services import ingestion_service
 
 logger = get_logger(__name__)
@@ -107,6 +107,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # 文档与索引接口。
     app.include_router(documents.router)
     app.include_router(index.router)
+    # 问答与会话接口。
+    app.include_router(chat.router)
 
     @app.get("/health", tags=["system"], summary="健康检查")
     async def health() -> dict[str, str]:

@@ -5,19 +5,24 @@
 漏导入会导致迁移脚本静默漏表。
 """
 
+from app.models.conversation import Conversation
 from app.models.document import Document, DocumentStatus
 from app.models.ingestion_task import IngestionStatus, IngestionTask
 from app.models.knowledge_base_index import IndexStatus, KnowledgeBaseIndex
+from app.models.message import Message, MessageRole
 from app.models.model_config import ModelConfig
 from app.models.user import User
 
 __all__ = [
+    "Conversation",
     "Document",
     "DocumentStatus",
     "IndexStatus",
     "IngestionStatus",
     "IngestionTask",
     "KnowledgeBaseIndex",
+    "Message",
+    "MessageRole",
     "ModelConfig",
     "User",
 ]
