@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,17 @@ logger = get_logger(__name__)
 
 _lock = threading.Lock()
 _client: Any | None = None
+
+# 连接失败后的重试冷却（秒）。
+#
+# 失败后**不能永久放弃**：Chroma 是独立进程，比后端晚启动或中途重启都是常态，
+# 一次失败就永久失效意味着用户必须重启后端（连带丢掉会话缓存与已加载模型）。
+# 也不能每次请求都重试：每次建连都带内部重试、耗时数秒，
+# 前端轮询索引状态时会让每个请求都卡住几秒。
+# 15 秒是「用户等待可接受」与「不给不可用的服务叠加压力」的折中。
+_RETRY_COOLDOWN_SECONDS = 15.0
+_last_failure_at: float | None = None
+_LAST_FAILURE_MESSAGE = ""
 
 
 class VectorStoreUnavailableError(AppError):
@@ -49,14 +61,27 @@ def _persist_dir() -> Path:
 
 
 def get_chroma_client() -> Any:
-    """返回进程级共享的 Chroma 客户端。首次调用时才真正建立连接。"""
-    global _client
+    """返回进程级共享的 Chroma 客户端。首次调用时才真正建立连接。
+
+    失败后会按冷却间隔重试，而不是永久放弃：Chroma 是个独立进程，
+    它比后端晚启动、或中途重启都是常态。若连接失败一次就再也不重试，
+    用户必须重启后端才能恢复，而重启后端会连带丢掉会话缓存与已加载的模型。
+    """
+    # global 声明必须在函数体最前面：Python 要求它在任何对该名字的**使用**之前出现，
+    # 放在 except 块里会直接报 SyntaxError（name is used prior to global declaration）。
+    global _client, _last_failure_at, _LAST_FAILURE_MESSAGE
     if _client is not None:
         return _client
 
     with _lock:
         if _client is not None:
             return _client
+        # 冷却期检查必须在锁内做：多个并发请求同时发现 Chroma 不可用时，
+        # 不加这层判断会各自发起一次建连（每次都带重试，耗时数秒），
+        # 反而给已经不可用的服务叠加上百次无谓请求。
+        now = time.monotonic()
+        if _last_failure_at is not None and (now - _last_failure_at) < _RETRY_COOLDOWN_SECONDS:
+            raise VectorStoreUnavailableError(_LAST_FAILURE_MESSAGE)
 
         settings = get_settings()
         mode = settings.chroma_mode.strip().lower()
@@ -104,24 +129,30 @@ def get_chroma_client() -> Any:
         except VectorStoreUnavailableError:
             raise
         except Exception as exc:
+            # 记录失败时刻，启动冷却期；同时记下文案供冷却期内的请求复用。
+            _last_failure_at = time.monotonic()
             if mode == "server":
-                raise VectorStoreUnavailableError(
+                _LAST_FAILURE_MESSAGE = (
                     "无法连接向量库服务。请确认 Chroma 已启动："
                     f"chroma run --host {settings.chroma_host} --port {settings.chroma_port}"
-                ) from exc
-            raise VectorStoreUnavailableError(
-                f"初始化向量库失败：{type(exc).__name__}"
-            ) from exc
+                )
+            else:
+                _LAST_FAILURE_MESSAGE = f"初始化向量库失败：{type(exc).__name__}"
+            logger.warning("向量库连接失败（%.0f 秒内不再重试）：%s", _RETRY_COOLDOWN_SECONDS, exc)
+            raise VectorStoreUnavailableError(_LAST_FAILURE_MESSAGE) from exc
 
         _client = client
+        _last_failure_at = None
         return _client
 
 
 def reset_client() -> None:
-    """丢弃缓存的客户端。测试或多进程切换场景使用。"""
-    global _client
+    """丢弃缓存的客户端，下次调用会重新建连。测试与配置变更时使用。"""
+    global _client, _last_failure_at, _LAST_FAILURE_MESSAGE
     with _lock:
         _client = None
+        _last_failure_at = None
+        _LAST_FAILURE_MESSAGE = ""
 
 
 def get_or_create_collection(name: str) -> Any:
@@ -134,7 +165,10 @@ def get_or_create_collection(name: str) -> Any:
     try:
         return client.get_or_create_collection(name=name, metadata={"hnsw:space": "cosine"})
     except Exception as exc:
-        raise VectorStoreUnavailableError(f"获取向量集合失败：{type(exc).__name__}") from exc
+        # 异常类型只进日志，不进给用户的 message：ConnectError / HTTPStatusError
+        # 这类内部名称对用户没有意义，反而会掩盖真正可操作的信息。
+        logger.warning("获取向量集合失败 name=%s error=%s", name, type(exc).__name__)
+        raise VectorStoreUnavailableError("向量库暂时不可用，请稍后重试") from exc
 
 
 def delete_collection(name: str) -> None:
@@ -182,7 +216,8 @@ def upsert_chunks(
             ids=ids, embeddings=embeddings, documents=documents, metadatas=metadatas
         )
     except Exception as exc:
-        raise VectorStoreUnavailableError(f"写入向量库失败：{type(exc).__name__}") from exc
+        logger.warning("写入向量库失败 collection=%s error=%s", collection_name, type(exc).__name__)
+        raise VectorStoreUnavailableError("写入向量库失败，请稍后重试") from exc
 
 
 def delete_by_document(collection_name: str, document_id: int) -> None:
@@ -195,7 +230,8 @@ def delete_by_document(collection_name: str, document_id: int) -> None:
     try:
         collection.delete(where={"document_id": document_id})
     except Exception as exc:
-        raise VectorStoreUnavailableError(f"删除向量失败：{type(exc).__name__}") from exc
+        logger.warning("删除向量失败 collection=%s error=%s", collection_name, type(exc).__name__)
+        raise VectorStoreUnavailableError("删除向量失败，请稍后重试") from exc
 
 
 def query_chunks(
@@ -221,7 +257,8 @@ def query_chunks(
             )
         )
     except Exception as exc:
-        raise VectorStoreUnavailableError(f"向量检索失败：{type(exc).__name__}") from exc
+        logger.warning("向量检索失败 collection=%s error=%s", collection_name, type(exc).__name__)
+        raise VectorStoreUnavailableError("向量检索失败，请稍后重试") from exc
 
 
 def describe() -> dict[str, Any]:

@@ -29,7 +29,21 @@ DEFAULT_TOP_K = 30
 # 最终进入 Prompt 的片段数。设计文档第 7.2 节示例为 5。
 DEFAULT_TOP_N = 5
 
-# 相关性阈值。
+# 相关性阈值（两道，分别针对两种完全不同的分数）。
+#
+# 【第一道】向量初检相似度阈值：在精排前丢掉明显无关的候选，
+# 既减少 Reranker 的计算量，也让日志里的初检数更有意义。
+# 分数是 cosine 相似度（1 - 距离），实际取值多在 0.2~0.6。
+#
+# 取值必须依据实测，**不能凭直觉取 0.5**。本项目 bge-m3 的实测分布是：
+#   相关问题 0.35 / 0.52 / 0.56
+#   无关问题 0.32 / 0.35（今天天气怎么样）
+# 两类分布**重叠**。若取 0.5，会把「切块大小是多少？」(0.35) 直接丢掉——
+# 而它实际精排分高达 0.69，是正确命中。因此这里只取一个明显低于相关样本下沿的值，
+# 用于剔除接近零的噪声；真正的相关性判断交给第二道精排阈值。
+DEFAULT_VECTOR_SIMILARITY_CUTOFF = 0.15
+
+# 【第二道】精排阈值。
 #
 # 为什么需要它：本地 Reranker（bge-reranker-large）对完全不相关的片段会输出接近 0 的分数。
 # 实测「今天天气怎么样？」这类与知识库无关的问题时，所有候选的精排分都是 0.0。
@@ -193,12 +207,17 @@ def retrieve(
     config: ModelConfig,
     top_k: int = DEFAULT_TOP_K,
     top_n: int = DEFAULT_TOP_N,
+    vector_cutoff: float = DEFAULT_VECTOR_SIMILARITY_CUTOFF,
     rerank_threshold: float = DEFAULT_RERANK_THRESHOLD,
 ) -> RetrievalResult:
     """执行完整检索链路。
 
-    返回的 passages 已经过滤掉低于相关性阈值的候选；全部被过滤时
-    `is_empty` 为 True，调用方据此走「资料不足」分支，而不是拿无关内容生成回答。
+    两道阈值按顺序生效：
+    1. `vector_cutoff` 过滤向量初检结果，丢掉明显无关的噪声（省下 Reranker 的算力）；
+    2. `rerank_threshold` 过滤精排结果，这是判断「是否真的相关」的主要依据。
+
+    全部被过滤时 `is_empty` 为 True，调用方据此走「资料不足」分支，
+    而不是拿无关内容生成回答。
     """
     embedding = _build_query_embedding(config)
     query_vector = embedding.get_query_embedding(query)
@@ -213,6 +232,7 @@ def retrieve(
     distances = (raw.get("distances") or [[]])[0]
 
     candidates: list[Passage] = []
+    dropped_by_vector = 0
     for index, chunk_id in enumerate(ids):
         text = documents[index] if index < len(documents) else ""
         meta = metadatas[index] if index < len(metadatas) else {}
@@ -222,21 +242,39 @@ def retrieve(
             logger.warning("检索结果缺少文本或 metadata，已跳过 chunk_id=%s", chunk_id)
             continue
         distance = distances[index] if index < len(distances) else None
+        # 集合用的距离度量是 cosine，相似度 = 1 - 距离
+        vector_score = (1.0 - float(distance)) if distance is not None else None
+
+        # 第一道：向量相似度阈值。
+        # 只在确实拿到分数时过滤；没有分数说明该后端不返回距离，
+        # 此时不能凭 0 或 None 误杀全部结果。
+        if vector_score is not None and vector_score < vector_cutoff:
+            dropped_by_vector += 1
+            continue
+
         candidates.append(
             Passage(
                 chunk_id=str(chunk_id),
                 text=text,
                 filename=str(meta.get("filename", "未知文档")),
                 document_id=int(meta.get("document_id", 0)),
-                # 集合用的距离度量是 cosine，相似度 = 1 - 距离
-                vector_score=(1.0 - float(distance)) if distance is not None else None,
+                vector_score=vector_score,
             )
+        )
+
+    if dropped_by_vector:
+        logger.info(
+            "向量初检过滤：%d 个候选相似度低于 %.2f 被剔除（剩余 %d）",
+            dropped_by_vector,
+            vector_cutoff,
+            len(candidates),
         )
 
     ranked = rerank_passages(config, query, candidates, top_n)
 
-    # 应用相关性阈值。只在拿到精排分时过滤：若 Reranker 不可用（降级为向量相似度排序），
-    # rerank_score 为 None，此时无法判断相关性，不做过滤以免把所有结果都误杀。
+    # 第二道：精排阈值。只在拿到精排分时过滤：若 Reranker 不可用
+    # （降级为向量相似度排序），rerank_score 为 None，此时无法判断相关性，
+    # 不做过滤以免把所有结果都误杀。
     kept = [
         passage
         for passage in ranked

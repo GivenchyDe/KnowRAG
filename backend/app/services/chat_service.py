@@ -280,9 +280,36 @@ def _stream_llm(llm: Any, messages: list[Any]) -> AsyncIterator[str]:
     queue: asyncio.Queue[str | None] = asyncio.Queue()
 
     def produce() -> None:
+        # 已推出的累积文本。用于在 provider 不提供 delta 时自行算出增量。
+        emitted = ""
         try:
             for chunk in llm.stream_chat(messages):
                 delta = getattr(chunk, "delta", None)
+
+                if not delta:
+                    # 增量兜底。**这一步不能省**：
+                    # `ChatResponse.delta` 的默认值是 None，只有部分 provider 的流式实现
+                    # 会填它；另一些只填 `message.content`（且是**累积全文**而不是增量）。
+                    # 如果只认 delta，遇到后者就会一个字都推不出去——
+                    # 现象是后端日志显示「问答完成、回答长度 779」，前端却收到空白回答，
+                    # 而且流正常以 complete 结束、不报任何错，极难定位。
+                    # 这里从累积全文里截出本次新增的部分，保证两种实现都能正确流式输出。
+                    full = ""
+                    message = getattr(chunk, "message", None)
+                    if message is not None:
+                        full = getattr(message, "content", None) or ""
+
+                    if full.startswith(emitted):
+                        delta = full[len(emitted) :]
+                    elif full:
+                        # 累积文本与已推出内容对不上（例如 provider 每次给的是片段而非累积），
+                        # 保守地整段推出，宁可重复也不要丢内容。
+                        delta = full
+                    else:
+                        continue
+
+                    emitted = full if full.startswith(emitted) else emitted + str(delta)
+
                 if delta:
                     loop.call_soon_threadsafe(queue.put_nowait, str(delta))
         except Exception as exc:  # 供应商调用失败
@@ -381,26 +408,59 @@ async def stream_rag_answer(
             return
 
     sources = result.sources()
+
+    # --- 空结果：直接给出固定回答，**不调用 LLM** ---
+    #
+    # 只在 knowledge_bool=True 时走这条分支。含义是「知识库是本轮回答的唯一依据」：
+    # 既然没有检索到任何相关资料，那么调用 LLM 只会得到两种结果——编造，或者
+    # 依赖系统提示词勉强拒答。前者是幻觉，后者也要付出一次 token 成本与额外延迟，
+    # 而拒答本身是一句完全确定的话，没有任何生成的必要。
+    #
+    # knowledge_bool=False 时刻意**不**走这里：那是用户明确关闭知识库、要求自由对话
+    # （例如打招呼），此时空结果不构成「无法回答」。
+    if knowledge_bool and result.is_empty:
+        answer = prompts.NO_CONTEXT_ANSWER
+        save_message(
+            db,
+            user_id=user_id,
+            conversation_id=conversation_id,
+            role=MessageRole.ASSISTANT,
+            content=answer,
+            sources=None,
+            trace_id=trace_id,
+        )
+        touch_conversation(db, conversation, "")
+        logger.info(
+            "无相关资料，未调用 LLM trace_id=%s user_id=%s 初检=%d 采纳=0",
+            trace_id,
+            user_id,
+            result.candidate_count,
+        )
+        # 与正常回答保持同样的事件序列：先 token（把文案推给前端），再 complete。
+        # 这样前端不需要为「拒答」维护一条特殊路径。
+        yield ("token", {"text": answer})
+        yield ("complete", {"trace_id": trace_id, "sources": []})
+        return
+
     if sources:
         yield ("sources", {"sources": sources})
 
     # --- 构造 Prompt ---
     from llama_index.core.llms import ChatMessage as LlamaChatMessage
 
-    if result.is_empty:
-        system_content = prompts.NO_CONTEXT_PROMPT
-    else:
+    if knowledge_bool:
+        # 知识库模式：带上检索到的资料，并要求严格基于资料作答。
         system_content = prompts.build_rag_system_prompt(retrieval.build_context(result.passages))
+    else:
+        # 自由对话模式：不加 RAG 约束。
+        # 之前这里无论开关如何都用同一套 system prompt，导致关闭知识库后
+        # 单纯打个招呼也会被「只能依据参考资料回答」的规则拒答。
+        system_content = prompts.FREE_CHAT_PROMPT
 
     messages: list[Any] = [LlamaChatMessage(role="system", content=system_content)]
     for history in history_rows:
         messages.append(LlamaChatMessage(role=history.role, content=history.content))
-    messages.append(
-        LlamaChatMessage(
-            role="user",
-            content=prompts.build_history_aware_user_prompt(query, has_context=not result.is_empty),
-        )
-    )
+    messages.append(LlamaChatMessage(role="user", content=query))
 
     try:
         llm = _build_llm(config, model=model, temperature=temperature, max_tokens=max_tokens)
