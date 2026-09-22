@@ -26,6 +26,15 @@ const scroller = ref<HTMLElement | null>(null);
 const showPanel = ref(true);
 
 const indexReady = computed(() => documents.indexInfo?.status === IndexStatus.READY);
+
+/**
+ * 知识库中已索引的文档数。
+ *
+ * 与 `indexReady` 的区别很关键：文档数为 0 表示库里真的没内容
+ * （此时开启知识库必然答不出来，需要禁用输入并引导上传）；
+ * 而「索引未就绪」只是还没建好索引，内容其实存在。两者的引导动作不同。
+ */
+const documentCount = computed(() => documents.indexInfo?.document_count ?? 0);
 const indexMessage = computed(() => documents.indexInfo?.message ?? "正在读取知识库状态…");
 const modelLabel = computed(() => {
   const config = configStore.config;
@@ -145,6 +154,7 @@ onBeforeUnmount(() => {
           :knowledge-enabled="chat.knowledgeEnabled"
           :model-label="modelLabel"
           :index-ready="indexReady"
+          :document-count="documentCount"
           @send="handleSend"
           @stop="chat.stopStreaming()"
           @update:knowledge-enabled="chat.knowledgeEnabled = $event"

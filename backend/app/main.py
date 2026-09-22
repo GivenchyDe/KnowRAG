@@ -21,8 +21,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import Settings, get_settings
 from app.core.errors import TRACE_ID_STATE_KEY, register_exception_handlers
 from app.core.logging import configure_logging, get_logger
+from app.db.session import SessionLocal
 from app.routers import auth, chat, config, documents, index
-from app.services import ingestion_service
+from app.services import config_service, ingestion_service
+from app.services.model_loader import preload_local_models
 
 logger = get_logger(__name__)
 
@@ -31,16 +33,38 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """应用生命周期钩子。
 
-    启动时清理上次进程退出遗留的 pending / running 摄取任务：
-    线程池里的任务不会跨进程存活，不清理的话前端会一直轮询一个永不推进的任务。
+    启动时做两件事：
+    1. 清理上次进程退出遗留的 pending / running 摄取任务——
+       线程池里的任务不会跨进程存活，不清理的话前端会一直轮询一个永不推进的任务；
+    2. 在**后台线程**里预热本地模型。实测首次检索约 8 秒，其中 bge-m3 加载占 7.5 秒，
+       这 8 秒正好落在用户第一次提问的关键路径上，表现就是「一直卡在正在检索」。
+       预热把这段耗时挪到启动阶段，且不阻塞启动（后台线程）。
     """
     reaped = ingestion_service.reap_stale_tasks()
     if reaped:
         logger.warning("启动清理：已将 %d 个中断的摄取任务标记为失败", reaped)
+
+    # 只有本地 provider 才需要预热：远程 provider 不加载本地权重。
+    try:
+        db = SessionLocal()
+        try:
+            config = config_service.get_or_create_config(db)
+            needs_local = (
+                config.embed_provider == "local" or config.rerank_provider == "local"
+            )
+        finally:
+            db.close()
+        if needs_local:
+            preload_local_models()
+        else:
+            logger.info("Embedding 与 Reranker 均为远程 provider，跳过本地模型预热")
+    except Exception as exc:
+        # 预热失败不应阻止应用启动：数据库暂时不可用时也要能把服务拉起来，
+        # 否则运维会陷入「连健康检查都看不到，无法判断是库的问题还是代码的问题」。
+        logger.warning("启动预热未执行（不影响服务启动）：%s", type(exc).__name__)
+
     yield
     ingestion_service.shutdown_executor()
-
-logger = get_logger(__name__)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
