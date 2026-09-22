@@ -153,6 +153,9 @@ function toggleKnowledge(): void {
 
 <style scoped>
 .composer {
+  /* 固定在聊天区底部：高度按内容算，不参与伸缩、不被消息区挤压。
+     不加这行时它的 flex-shrink 默认为 1，消息很长时会被压扁。 */
+  flex: none;
   padding: var(--kr-space-4) var(--kr-space-5) var(--kr-space-5);
   border-top: 1px solid var(--kr-border);
   background: var(--kr-panel);

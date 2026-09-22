@@ -135,6 +135,12 @@ onMounted(() => {
   background: var(--kr-panel);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  /* 侧边栏自身不滚动、也不被内容顶高：品牌区、功能入口、用户区固定，
+     只有中间的会话列表（.conv__list）内部滚动。
+     min-height: 0 是必需的——不给的话侧边栏会被列内容顶高，
+     再顺着 .shell 把整页撑开。 */
+  min-height: 0;
+  overflow: hidden;
 }
 
 .sidebar__brand {
