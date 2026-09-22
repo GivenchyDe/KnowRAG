@@ -118,6 +118,8 @@ function formatTime(raw: string): string {
   margin: 0;
   padding: 0;
   overflow-y: auto;
+  /* 预留滚动条槽位，避免会话增多时标题宽度突然变窄、文字抖动 */
+  scrollbar-gutter: stable;
   min-height: 0;
   flex: 1;
   display: flex;

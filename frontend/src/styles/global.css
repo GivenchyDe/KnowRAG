@@ -52,6 +52,13 @@
   --kr-space-7: 48px;
 
   --kr-transition: 160ms ease;
+
+  /* 滚动条：极细、半透明、悬停加深。详见文件末尾的滚动条样式块。
+     半透明而不是实色，是为了让它压在面板/磨砂背景上也自然。 */
+  --kr-scrollbar-thumb: rgba(20, 24, 35, 0.16);
+  --kr-scrollbar-thumb-hover: rgba(20, 24, 35, 0.32);
+  /* 6px：细到几乎不打扰阅读，同时仍可按住拖动 */
+  --kr-scrollbar-size: 6px;
 }
 
 *,
@@ -107,6 +114,64 @@ a:hover {
 code,
 pre {
   font-family: var(--kr-font-mono);
+}
+
+/* =========================================================================== *
+ * 滚动条（全局）
+ *
+ * 观感目标：几乎看不见，需要时一眼能找到——极细、半透明、轨道完全透明，
+ * 悬停时才略微加深。参考 DeepSeek 网页版。
+ *
+ * 为什么写在全局而不是各组件里：项目有 4 个滚动容器（左侧会话列表、消息区、
+ * 右侧引用来源面板、路由视图容器）外加一个可滚动输入框，逐个组件写要重复五遍
+ * 且必然漏掉某个。组件自身只负责 `scrollbar-gutter`（见各组件样式）。
+ *
+ * 两套机制**互斥**，所以分两条路径：
+ * - Chromium / Safari：`::-webkit-scrollbar` 伪元素，能做圆角与 hover；
+ * - Firefox：不支持上面那套，只能用 `scrollbar-width` / `scrollbar-color`。
+ *
+ * 标准属性为什么必须用 @supports 挡在 Chromium 之外：Chrome 121 起同样支持
+ * `scrollbar-width`，而**只要它生效，Chrome 就会忽略 `::-webkit-scrollbar`**，
+ * 于是 6px 宽度、圆角、hover 加深会全部失效，退化成系统自带的细滚动条。
+ * =========================================================================== */
+
+/* --- Chromium / Safari --- */
+::-webkit-scrollbar {
+  width: var(--kr-scrollbar-size);
+  height: var(--kr-scrollbar-size);
+}
+
+/* 轨道与右下角交汇处一律透明：留任何背景色都会在浅色面板上显出一条灰带 */
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--kr-scrollbar-thumb);
+  /* 滑块宽 6px，用大圆角得到胶囊形 */
+  border-radius: var(--kr-radius-pill);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--kr-scrollbar-thumb-hover);
+}
+
+/* 去掉两端可能出现的上下箭头按钮 */
+::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* --- Firefox ---
+   `scrollbar-color` 只接受「滑块色 + 轨道色」两个值，**没有 hover 状态**，
+   所以 FireFox 下悬停不会加深，这是该属性的能力边界，不是漏写。 */
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--kr-scrollbar-thumb) transparent;
+  }
 }
 
 /* --- 通用面板：轻微磨砂玻璃质感 --- */

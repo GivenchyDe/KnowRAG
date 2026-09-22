@@ -295,6 +295,9 @@ onBeforeUnmount(() => {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
+  /* 预留滚动条槽位：消息由少变多时滚动条出现，否则居中的消息列
+     会横向偏移 3px（消息区两侧各让出一半宽度）而明显跳动。 */
+  scrollbar-gutter: stable;
   padding: var(--kr-space-5);
 }
 
@@ -377,6 +380,8 @@ onBeforeUnmount(() => {
   border-left: 1px solid var(--kr-border);
   background: var(--kr-panel);
   overflow-y: auto;
+  /* 预留滚动条槽位，理由同 .stream：引用条目由少变多时面板内容不应横向抖动 */
+  scrollbar-gutter: stable;
   padding: var(--kr-space-4);
   display: flex;
   flex-direction: column;
