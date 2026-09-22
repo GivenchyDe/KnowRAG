@@ -21,10 +21,13 @@ const props = defineProps<{
   knowledgeEnabled: boolean;
   /** 当前模型名，用于展示 */
   modelLabel: string;
-  /** 知识库是否就绪（后端判定索引可用），未就绪时给出提示但仍允许关闭开关后纯对话 */
+  /** 知识库是否就绪（后端判定索引可用），未就绪时给出提示但仍允许对话 */
   indexReady: boolean;
-  /** 知识库中已索引的文档数。为 0 表示库里确实没有内容 */
-  documentCount: number;
+  /**
+   * 知识库是否为空。为 true 时本组件只做**提示**，不做任何禁用：
+   * 开关始终可切换、输入与发送始终可用，本轮由 store 自动降级为普通对话。
+   */
+  knowledgeEmpty: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -36,25 +39,16 @@ const emit = defineEmits<{
 const text = ref("");
 
 /**
- * 知识库为空。
+ * 发送条件只看「有没有内容」和「是否正在生成」。
  *
- * 与「索引未就绪」是两件事，必须分开判断：
- * - 空（documentCount === 0）：库里根本没内容，开了知识库必然什么都答不出来，
- *   因此**禁用输入**并引导去上传文档；
- * - 未就绪（有文档但索引没建好/已过期）：内容存在，只是还没索引，
- *   此时不禁用输入，提示去重建索引即可。
+ * 知识库是否为空**不参与**判断：为空时本轮会降级为普通对话（见 `stores/chat.ts`
+ * 的 `useKnowledge`），提问本身始终有意义，禁用输入只会让用户卡住。
  *
- * 之前只判断了「未就绪」并显示一行警告，用户仍然可以发送，
- * 结果必然得到一句「没找到相关资料」——把可用性问题伪装成了检索问题。
+ * 曾经的写法是「知识库为空且开关打开就禁用输入」，并且连开关一起禁用，
+ * 而出问题的用户恰恰需要关掉开关才能继续——于是输入、发送、开关同时不可用，
+ * 刷新也无效，只有先去上传文档才能脱困。
  */
-const knowledgeEmpty = computed(() => props.documentCount === 0);
-
-/** 开启了知识库但库是空的：这是唯一需要禁用输入的场景。 */
-const blockedByEmptyKnowledge = computed(() => props.knowledgeEnabled && knowledgeEmpty.value);
-
-const canSend = computed(
-  () => text.value.trim().length > 0 && !props.streaming && !blockedByEmptyKnowledge.value,
-);
+const canSend = computed(() => text.value.trim().length > 0 && !props.streaming);
 
 function handleSend(): void {
   if (!canSend.value) {
@@ -85,31 +79,27 @@ function toggleKnowledge(): void {
 
 <template>
   <footer class="composer">
-    <!-- 知识库为空时的引导。位置在输入框上方，符合「先看到原因再看到输入框」的阅读顺序 -->
-    <div v-if="blockedByEmptyKnowledge" class="composer__guide" role="status">
+    <!-- 知识库为空时的提示。位置在输入框上方，符合「先看到原因再看到输入框」的阅读顺序。
+         注意这里只是提示，不阻塞任何操作。 -->
+    <div v-if="knowledgeEnabled && knowledgeEmpty" class="composer__guide" role="status">
       <span class="composer__guide-mark" aria-hidden="true">!</span>
       <div class="composer__guide-text">
-        <p class="composer__guide-title">知识库为空，请先上传文档后再开启知识库问答</p>
+        <p class="composer__guide-title">知识库为空，请先上传文档。当前将按普通对话回答。</p>
         <p class="composer__guide-hint">
-          当前知识库中没有任何已索引的文档，继续提问必然检索不到内容。
-          可以先去
+          现在提问也可以，只是回答不会依据文档。可以先去
           <RouterLink to="/documents">文档管理</RouterLink>
-          上传文档；或关闭下方的「知识库」开关，直接进行普通对话。
+          上传文档；上传后保持「知识库」开启，回答就会基于你的文档。
         </p>
       </div>
     </div>
 
-    <div class="composer__box" :class="{ 'composer__box--blocked': blockedByEmptyKnowledge }">
+    <div class="composer__box">
       <textarea
         v-model="text"
         class="composer__input"
         rows="2"
-        :placeholder="
-          blockedByEmptyKnowledge
-            ? '知识库为空，请先上传文档，或关闭「知识库」开关'
-            : '输入问题，Enter 发送，Shift+Enter 换行'
-        "
-        :disabled="streaming || blockedByEmptyKnowledge"
+        placeholder="输入问题，Enter 发送，Shift+Enter 换行"
+        :disabled="streaming"
         @keydown="handleKeydown"
       ></textarea>
 
@@ -143,7 +133,7 @@ function toggleKnowledge(): void {
         <input
           type="checkbox"
           :checked="knowledgeEnabled"
-          :disabled="streaming || blockedByEmptyKnowledge"
+          :disabled="streaming"
           @change="toggleKnowledge"
         />
         <span class="toggle__track" aria-hidden="true"><span class="toggle__thumb"></span></span>
@@ -152,10 +142,9 @@ function toggleKnowledge(): void {
 
       <span class="composer__model" :title="modelLabel">{{ modelLabel }}</span>
 
-      <span v-if="knowledgeEnabled && knowledgeEmpty" class="composer__warn">
-        知识库为空，无法开启知识库问答
-      </span>
-      <span v-else-if="knowledgeEnabled && !indexReady" class="composer__warn">
+      <!-- 空库的提示已由输入框上方的提示条承担，这里只处理「有文档但索引未就绪」，
+           避免同一条信息在输入框上下各出现一次。 -->
+      <span v-if="knowledgeEnabled && !indexReady && !knowledgeEmpty" class="composer__warn">
         索引未就绪，发送后会提示需要先建立索引
       </span>
     </div>
@@ -185,14 +174,7 @@ function toggleKnowledge(): void {
     box-shadow var(--kr-transition);
 }
 
-/* 知识库为空被禁用时：输入框视觉上明确「不可用」，
-   而不是看起来正常却点不动。 */
-.composer__box--blocked {
-  background: rgba(20, 24, 35, 0.03);
-  border-style: dashed;
-}
-
-/* --- 知识库为空的引导条 --- */
+/* --- 知识库为空的提示条 --- */
 .composer__guide {
   display: flex;
   align-items: flex-start;

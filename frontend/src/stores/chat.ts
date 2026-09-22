@@ -1,9 +1,46 @@
-import { computed, ref } from "vue";
+import { computed, ref, watch } from "vue";
 import { defineStore } from "pinia";
 
 import * as chatApi from "@/api/chat";
+import { useDocumentStore } from "@/stores/documents";
 import { toErrorMessage } from "@/types/errors";
 import type { ChatMessage, Conversation, SourceItem } from "@/types/chat";
+
+/**
+ * 知识库开关的持久化 key。
+ *
+ * 只有一个布尔偏好，用 `localStorage` 足够；为此引入 Pinia 持久化插件
+ * （及其序列化配置）不划算。
+ */
+const KNOWLEDGE_PREFERENCE_KEY = "knowrag.chat.knowledgeEnabled";
+
+/**
+ * 读取用户上次的知识库开关选择。
+ *
+ * **默认 `false`**：新用户的知识库通常是空的，默认开启只会让第一次提问必然落空，
+ * 所以默认走普通对话，等上传文档后由用户自己打开。
+ *
+ * 只在取值严格等于 `"true"` 时返回 `true`：这样 `null`（从未写入）与被手工改坏的
+ * 任意字符串都会自然退回默认值，不需要额外的合法性校验。
+ */
+function readKnowledgePreference(): boolean {
+  try {
+    return window.localStorage.getItem(KNOWLEDGE_PREFERENCE_KEY) === "true";
+  } catch {
+    // 隐私模式或存储被禁用时访问 `localStorage` 会抛异常。
+    // 读不到只是回到默认值，不该让整个 store 初始化失败。
+    return false;
+  }
+}
+
+/** 记住用户的选择。失败时静默忽略——记不住偏好不影响问答本身。 */
+function persistKnowledgePreference(value: boolean): void {
+  try {
+    window.localStorage.setItem(KNOWLEDGE_PREFERENCE_KEY, String(value));
+  } catch {
+    // 隐私模式、配额已满等情况写不进去，忽略即可。
+  }
+}
 
 /**
  * 问答状态。
@@ -13,6 +50,15 @@ import type { ChatMessage, Conversation, SourceItem } from "@/types/chat";
  * 不会出现「库里存着半截回答」。
  */
 export const useChatStore = defineStore("chat", () => {
+  /**
+   * 知识库是否为空需要由文档状态推导，因此这里直接取 documents store。
+   *
+   * 之所以放在 store 而不是页面里：`knowledge_bool` 的取值只在本 store 的
+   * `send()` 里装配，把「库为空就降级」这条规则放在同一处，才能保证
+   * 所有调用方（输入框、示例问题、将来的任何入口）行为一致。
+   */
+  const documents = useDocumentStore();
+
   const conversations = ref<Conversation[]>([]);
   const conversationId = ref<string>("");
   const messages = ref<ChatMessage[]>([]);
@@ -25,8 +71,15 @@ export const useChatStore = defineStore("chat", () => {
   const lastSources = ref<SourceItem[]>([]);
   const lastTraceId = ref<string | null>(null);
 
-  /** 是否使用知识库检索。默认开启——本产品的核心能力就是基于知识库回答。 */
-  const knowledgeEnabled = ref(true);
+  /**
+   * 用户是否希望使用知识库检索。
+   *
+   * 这只是**用户的意图**，不等于本轮请求实际会启用检索——知识库为空时会降级，
+   * 见 `useKnowledge`。默认关闭，且跨刷新保留用户的显式选择。
+   */
+  const knowledgeEnabled = ref(readKnowledgePreference());
+
+  watch(knowledgeEnabled, persistKnowledgePreference);
 
   /** 用于中止流式请求。切换会话或点「停止」时调用 abort。 */
   let controller: AbortController | null = null;
@@ -38,6 +91,24 @@ export const useChatStore = defineStore("chat", () => {
   );
   const isStreaming = computed(() => streaming.value);
   const hasMessages = computed(() => messages.value.length > 0);
+
+  /**
+   * 知识库是否**确实**为空。
+   *
+   * 必须与「索引状态还没读到」区分开：`indexInfo` 为 `null` 表示状态接口尚未返回
+   * 或调用失败，此时不能判定为空——否则一次网络抖动就会让本轮问答悄悄跳过检索，
+   * 用户拿到一个没有任何文档依据的回答却毫不知情。
+   * 只有明确读到 `document_count === 0` 才算空。
+   */
+  const knowledgeEmpty = computed(
+    () => documents.indexInfo !== null && documents.indexInfo.document_count === 0,
+  );
+
+  /** 用户开着知识库，但库是空的：本轮实际会降级为普通对话，需要在界面上说明。 */
+  const knowledgeDegraded = computed(() => knowledgeEnabled.value && knowledgeEmpty.value);
+
+  /** 本轮请求真正要发给后端的 `knowledge_bool` 取值。 */
+  const useKnowledge = computed(() => knowledgeEnabled.value && !knowledgeEmpty.value);
 
   function nextKey(prefix: string): string {
     localSeq += 1;
@@ -152,6 +223,9 @@ export const useChatStore = defineStore("chat", () => {
       traceId: null,
       streaming: true,
       error: null,
+      // 在发送这一刻定稿：库为空而降级时，回答结束时必须在气泡上说明
+      // 「这条没有依据知识库」。若不说，用户会以为内容来自自己的文档。
+      degraded: knowledgeDegraded.value,
     };
     messages.value = [...messages.value, assistant];
 
@@ -163,7 +237,7 @@ export const useChatStore = defineStore("chat", () => {
         {
           conversation_id: conversationId.value,
           query: text,
-          knowledge_bool: knowledgeEnabled.value,
+          knowledge_bool: useKnowledge.value,
         },
         {
           onSources: (sources) => {
@@ -243,6 +317,9 @@ export const useChatStore = defineStore("chat", () => {
     lastSources,
     lastTraceId,
     knowledgeEnabled,
+    knowledgeEmpty,
+    knowledgeDegraded,
+    useKnowledge,
     activeConversation,
     isStreaming,
     hasMessages,

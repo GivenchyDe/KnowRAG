@@ -39,6 +39,11 @@ const isUser = computed(() => props.message.role === "user");
         <!-- 流式光标：让用户明确知道还在输出 -->
         <span v-if="message.streaming && message.content" class="cursor" aria-hidden="true"></span>
 
+        <!-- 降级说明：开关开着但库是空的，这条回答没有依据知识库 -->
+        <p v-if="message.degraded" class="message__degraded" role="status">
+          知识库为空，已按普通对话回答。上传文档后可开启知识库问答。
+        </p>
+
         <p v-if="message.error" class="message__error" role="alert">
           {{ message.error }}
         </p>
@@ -112,6 +117,18 @@ const isUser = computed(() => props.message.role === "user");
   font-size: 12.5px;
   color: var(--kr-danger);
   background: var(--kr-danger-soft);
+  padding: 8px 12px;
+  border-radius: var(--kr-radius);
+  word-break: break-word;
+}
+
+/* 降级说明用警告色而不是错误色：回答本身是成功的，
+   只是没有依据知识库，用错误色会让用户以为出错了。 */
+.message__degraded {
+  margin-top: var(--kr-space-2);
+  font-size: 12.5px;
+  color: var(--kr-warning);
+  background: var(--kr-warning-soft);
   padding: 8px 12px;
   border-radius: var(--kr-radius);
   word-break: break-word;
