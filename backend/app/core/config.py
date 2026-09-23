@@ -100,6 +100,11 @@ class Settings(BaseSettings):
     max_upload_bytes: int = Field(
         default=50 * 1024 * 1024, description="单个上传文件大小上限（字节），默认 50MB"
     )
+    max_avatar_bytes: int = Field(
+        default=2 * 1024 * 1024,
+        description="头像文件大小上限（字节），默认 2MB。远小于文档上限："
+        "头像是每次打开页面都会加载的图片，放大图只会拖慢首屏",
+    )
 
     # --- DocStore（Phase 3 使用）---
     # 切块后的文档节点存入 MongoDB，集合按用户隔离。

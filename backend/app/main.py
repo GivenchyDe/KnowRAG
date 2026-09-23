@@ -17,13 +17,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.core.config import Settings, get_settings
 from app.core.errors import TRACE_ID_STATE_KEY, register_exception_handlers
 from app.core.logging import configure_logging, get_logger
 from app.db.session import SessionLocal
 from app.routers import auth, chat, config, documents, index
-from app.services import config_service, ingestion_service
+from app.services import auth_service, config_service, ingestion_service
 from app.services.model_loader import preload_local_models
 
 logger = get_logger(__name__)
@@ -123,6 +124,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return response
 
     register_exception_handlers(app)
+
+    # 头像等可公开图片的静态服务。
+    #
+    # 挂在 `/api/media` 而**不是**顶层 `/media`：前端在开发环境通过 Vite 访问，
+    # 而 Vite 只把配置过的前缀（/api、/auth、/health）转发给后端。
+    # 顶层 `/media` 会被 Vite 自己接管并返回 404 —— 表现就是"后端日志显示上传成功、
+    # 前端 Toast 也提示成功，但头像死活不显示"。放在 `/api` 之下就直接复用了
+    # 已有的代理规则，开发环境与将来的反向代理都不需要再额外加一条。
+    #
+    # 只挂载 `file/media`，**不能**挂载 `file/` 整棵子树：后者包含
+    # `users/<id>/documents/`，那是用户的私有原始文档，挂上去等于全站公开。
+    # 头像文件名是随机 UUID，所以 URL 不可枚举；这是它能安全公开的前提。
+    app.mount("/api/media", StaticFiles(directory=str(auth_service.media_root())), name="media")
 
     # 认证接口按 docs/CODING_CONVENTIONS.md 第 6.1 节挂在 /auth 前缀下。
     app.include_router(auth.router)

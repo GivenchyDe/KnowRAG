@@ -75,7 +75,44 @@ class UserResponse(BaseModel):
     username: str
     email: str | None
     is_active: bool
+    # 头像外链路径，未设置时为 null（前端退回文字头像）
+    avatar_url: str | None = None
     created_at: datetime
+
+
+class UpdateProfileRequest(BaseModel):
+    """修改个人资料。
+
+    两个字段都是**可选**：前端只提交被改动的字段，未提交的字段保持原值。
+    这一点不只是省流量——见 `username` 的校验说明。
+    """
+
+    username: str | None = Field(default=None, min_length=2, max_length=20, description="新用户名")
+    email: EmailStr | None = Field(default=None, description="新邮箱")
+
+    @field_validator("username")
+    @classmethod
+    def _validate_username(cls, value: str | None) -> str | None:
+        """字符集与注册保持一致；长度按产品要求收紧到 2-20。
+
+        注意这里与 `RegisterRequest` 的 3-64 并不一致，是**有意的**：
+        个人设置里的用户名是展示名，短一些更可读。
+        由此带来一个边界情况——注册时用了 21 个字符以上的老用户，如果只改邮箱
+        却把用户名一起提交，会被这里拒掉。因此前端**只提交真正改动过的字段**，
+        老的超长用户名不会被重新校验。
+        """
+        if value is None:
+            return None
+        if not all(char.isalnum() or char in "_-" for char in value):
+            raise ValueError("用户名只能包含字母、数字、下划线和连字符")
+        return value
+
+
+class AvatarUploadResponse(BaseModel):
+    """头像上传结果。"""
+
+    avatar_url: str
+    message: str = "头像已更新"
 
 
 class RegisterResponse(BaseModel):

@@ -204,8 +204,18 @@ CREATE DATABASE knowrag DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci
 | `email` | varchar(255) | unique, nullable | 邮箱 |
 | `hashed_password` | varchar(255) | not null | bcrypt 哈希 |
 | `is_active` | boolean | default true | 是否启用 |
+| `avatar_url` | varchar(255) | nullable | 头像的**外链路径**（如 `/api/media/avatars/<随机名>.png`），不是磁盘路径 |
 | `created_at` | DATETIME(6) | not null | 创建时间 |
 | `updated_at` | DATETIME(6) | not null | 更新时间 |
+
+> `avatar_url` 由迁移 `c4a7e10b93d5` 加入（nullable、无默认值，已有用户为空即合法，
+> 前端会退回用用户名首字母生成的文字头像）。
+>
+> **头像为什么单独放 `file/media/avatars/` 而不是 `file/users/<id>/`**：
+> `main.py` 会把 `file/media` 整棵子树挂成静态目录，而
+> `file/users/<id>/documents/` 里是用户的私有原始文档。两者若同处一棵树，
+> 挂载静态目录就等于把所有人的上传文档公开。头像文件名是随机 UUID，
+> 因此 URL 不可枚举——这是它能安全公开的前提。
 
 ### 4.2 model_configs
 
@@ -477,6 +487,68 @@ Response:
   "username": "given"
 }
 ```
+
+#### GET `/auth/me`
+
+返回当前登录用户（不含 `hashed_password`）：
+
+```json
+{
+  "id": 1,
+  "username": "given",
+  "email": "given@example.com",
+  "is_active": true,
+  "avatar_url": "/api/media/avatars/9a8f7ff35d7c48739302d6cb02e249df.png",
+  "created_at": "2026-09-22T12:00:00Z"
+}
+```
+
+`avatar_url` 未设置时为 `null`，前端退回用用户名首字母生成的文字头像。
+
+#### PATCH `/auth/me`
+
+修改用户名 / 邮箱。**两个字段都可选，且按「请求体里出现了哪些键」决定更新什么**：
+
+```json
+{ "username": "new_name", "email": "new@example.com" }
+```
+
+- 不出现 `username` → 不改；出现空串 → 不改（用户名不可清空）。
+- `email` 传 `null` 表示**清空**邮箱；不传该键表示不动它。
+- 请求体为空（没有任何可更新字段）→ `422 VALIDATION_ERROR`。
+- 唯一冲突 → `422 VALIDATION_ERROR`，消息为「该用户名已被占用」/「该邮箱已被占用」。
+
+> 前端**只提交改动过的字段**，这是有意设计的约定：注册允许 3-64 字符，
+> 而本接口按产品要求把用户名收紧到 2-20。若不筛掉未改动字段，
+> 历史上用户名超过 20 字符的用户在只改邮箱时会被判为超长而保存失败。
+
+#### POST `/auth/me/avatar`
+
+`multipart/form-data`，字段名 `file`。
+
+- 允许 `image/jpeg` / `image/png` / `image/webp`，默认上限 2MB（`MAX_AVATAR_BYTES`）。
+- 除 `Content-Type` 外还比对**文件头魔数**；声明与实际格式不一致一律拒绝
+  （可挡住"把文本文件改名成 .png"这类伪装，且不引入图片处理依赖）。
+- 磁盘文件名为随机 UUID，返回：
+
+```json
+{ "avatar_url": "/api/media/avatars/<uuid>.png", "message": "头像已更新" }
+```
+
+- 替换头像时删除旧文件；同时因为 URL 变化，浏览器缓存自然失效，无需拼版本号。
+
+> **静态服务挂在 `/api/media`，而不是顶层 `/media`**（重要，踩过一次）：
+> 前端开发环境经 Vite 访问后端，而 `vite.config.ts` 只把 `/api`、`/auth`、`/health`
+> 转发给 FastAPI。顶层路径会被 Vite 自己接管——而且它对未知路径走 SPA fallback，
+> 返回的是 **200 + `index.html`** 而不是 404，于是 `<img>` 拿到 HTML、
+> 图片解不出来，网络面板却显示"成功"。现象就是「后端日志 200、Toast 提示已保存、
+> 头像死活不显示」。
+> 放在 `/api` 之下即复用了已有代理规则，开发环境与将来的反向代理都不必再加一条。
+> **规则：任何前端需要访问的新后端路径，都必须落在已配置代理的前缀之下。**
+>
+> 挂载点只包含 `file/media` 这一棵子树，**不能**挂载 `file/`——后者包含
+> `users/<id>/documents/`（用户私有原始文档）。头像文件名是随机 UUID，
+> URL 不可枚举，这是它可以公开访问的前提。
 
 #### POST `/auth/login`
 
