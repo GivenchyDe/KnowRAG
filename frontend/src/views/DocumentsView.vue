@@ -536,7 +536,7 @@ async function handleDelete(documentId: number): Promise<void> {
 }
 
 .btn--ghost:hover:not(:disabled) {
-  background: rgba(20, 24, 35, 0.04);
+  background: var(--kr-hover);
   color: var(--kr-text);
 }
 

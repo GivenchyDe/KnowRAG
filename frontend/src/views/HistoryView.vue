@@ -279,12 +279,12 @@ async function handleDelete(conversationId: string): Promise<void> {
 
 .btn--primary {
   padding: 8px 18px;
-  color: #fff;
+  color: var(--kr-on-primary);
   background: var(--kr-primary);
 }
 
 .btn--primary:hover {
-  background: #3f6ce0;
+  background: var(--kr-primary-hover);
 }
 
 .link {

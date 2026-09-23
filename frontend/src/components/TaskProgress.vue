@@ -93,7 +93,7 @@ defineProps<{
 .bar {
   height: 4px;
   border-radius: var(--kr-radius-pill);
-  background: rgba(20, 24, 35, 0.07);
+  background: var(--kr-track);
   overflow: hidden;
 }
 

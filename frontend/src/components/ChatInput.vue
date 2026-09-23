@@ -268,7 +268,7 @@ function toggleKnowledge(): void {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  color: var(--kr-on-primary);
   background: var(--kr-primary);
   cursor: pointer;
   transition:
@@ -277,7 +277,7 @@ function toggleKnowledge(): void {
 }
 
 .composer__btn:hover:not(:disabled) {
-  background: #3f6ce0;
+  background: var(--kr-primary-hover);
 }
 
 .composer__btn:disabled {
@@ -334,7 +334,7 @@ function toggleKnowledge(): void {
   width: 30px;
   height: 17px;
   border-radius: var(--kr-radius-pill);
-  background: rgba(20, 24, 35, 0.15);
+  background: var(--kr-toggle-off);
   position: relative;
   transition: background var(--kr-transition);
   flex: none;
