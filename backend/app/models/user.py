@@ -27,6 +27,13 @@ class User(Base, TimestampMixin):
     email: Mapped[str | None] = mapped_column(String(255), nullable=True, unique=True)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # 头像的**外链路径**（如 `/media/avatars/<随机名>.png`），不是磁盘路径。
+    #
+    # 只存路径而不存图片本身：用户表会被频繁读取（每次 /auth/me、每次鉴权 inject），
+    # 把二进制塞进这一行会让所有查询都背上无关的负载。
+    # 文件名用随机 UUID（见 auth_service.save_avatar），因此该 URL 不可枚举——
+    # 否则任何人按 user_id 递增就能把全站头像拉一遍。
+    avatar_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     def __repr__(self) -> str:
         """只输出非敏感字段，避免密码哈希进入日志或调试输出。"""
