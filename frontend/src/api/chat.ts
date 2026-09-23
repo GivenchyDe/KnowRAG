@@ -6,6 +6,7 @@ import type {
   MessageListResponse,
   SourceItem,
   StreamHandlers,
+  UpdateConversationRequest,
 } from "@/types/chat";
 
 /**
@@ -37,6 +38,22 @@ export async function deleteConversation(conversationId: string): Promise<void> 
     method: "DELETE",
     absolutePath: true,
   });
+}
+
+/**
+ * 修改会话：重命名或切换置顶。
+ *
+ * 只提交要改的字段（后端按「请求体里出现了哪些键」判断），
+ * 因此重命名不会顺手把 `is_pinned` 重置掉。
+ */
+export async function updateConversation(
+  conversationId: string,
+  payload: UpdateConversationRequest,
+): Promise<Conversation> {
+  return request<Conversation>(
+    `/api/chat/conversations/${encodeURIComponent(conversationId)}`,
+    { method: "PATCH", json: payload, absolutePath: true },
+  );
 }
 
 export async function fetchMessages(conversationId: string): Promise<MessageListResponse> {
