@@ -322,6 +322,7 @@ CREATE DATABASE knowrag DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci
 | `conversation_id` | uuid | 前端/后端共同使用的会话 ID |
 | `user_id` | bigint FK | 所属用户 |
 | `title` | varchar(255) | 会话标题 |
+| `is_pinned` | boolean | 是否置顶，默认 false（迁移 `d8f2b6a15c74`） |
 | `created_at` | DATETIME(6) | 创建时间 |
 | `updated_at` | DATETIME(6) | 更新时间 |
 
@@ -329,6 +330,15 @@ CREATE DATABASE knowrag DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci
 
 - `(user_id, conversation_id)` 唯一。
 - 后端构造 RAG memory key 时使用 `f"{user_id}:{conversation_id}"`。
+
+排序：会话列表为 `is_pinned DESC, updated_at DESC, id DESC`。
+`is_pinned` 必须是**第一**排序键——它的产品语义就是"始终在最前"，
+若排在 `updated_at` 之后，一旦动过别的会话，置顶项就会被挤下去。
+
+> 已知行为：`updated_at` 带 `onupdate`，因此**置顶 / 取消置顶 / 重命名本身也会刷新它**。
+> 后果是取消置顶后该会话不会回到原来的时间位置，而会落在"最近"附近。
+> 这是有意的取舍（用户刚操作过它），若将来要改成"元数据变更不算活动"，
+> 需要在 ORM 层绕开 `onupdate`。
 
 ### 4.7 messages
 
@@ -682,6 +692,32 @@ Response:
 }
 ```
 
+#### PATCH `/api/chat/conversations/{conversation_id}`
+
+重命名会话 / 切换置顶。两个字段都可选，**按「请求体里出现了哪些键」决定改什么**
+（与 `PATCH /auth/me` 同一套约定），因此改名字不会顺手把 `is_pinned` 重置掉。
+
+```json
+{ "title": "新的会话名称", "is_pinned": true }
+```
+
+- `title`：1-100 字符，首尾空白会被去掉；空或被拒 → `422 VALIDATION_ERROR`。
+- `is_pinned`：布尔值，切换置顶。
+- 请求体为空 → `422`（「请求体里没有需要更新的字段」）。
+- 会话不存在或属于别人 → `404`（**不区分两者**，避免用响应差异枚举会话 ID）。
+
+Response 为 `ConversationResponse`（含 `is_pinned`）：
+
+```json
+{
+  "conversation_id": "58cc403e-3d88-4e3e-a5a7-b8a6f4f3a737",
+  "title": "新的会话名称",
+  "is_pinned": true,
+  "created_at": "2026-09-23T15:35:16Z",
+  "updated_at": "2026-09-23T15:36:02Z"
+}
+```
+
 #### POST `/api/chat/stream`
 
 Request:
@@ -707,7 +743,7 @@ event: sources
 data: {"sources":[{"filename":"a.pdf","chunk_id":"...","score":0.82}]}
 
 event: complete
-data: {"trace_id":"..."}
+data: {"trace_id":"...","sources":[...],"content":"完整回答文本"}
 
 event: error
 data: {"message":"当前知识库索引不可用，请先重建索引"}
