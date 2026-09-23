@@ -162,8 +162,12 @@ function dispatchSseBlock(block: string, handlers: StreamHandlers): void {
   } else if (eventName === "sources") {
     handlers.onSources?.((payload as { sources?: SourceItem[] }).sources ?? []);
   } else if (eventName === "complete") {
-    const data = payload as { trace_id: string; sources?: SourceItem[] };
-    handlers.onComplete?.({ trace_id: data.trace_id, sources: data.sources ?? [] });
+    const data = payload as { trace_id: string; sources?: SourceItem[]; content?: string };
+    handlers.onComplete?.({
+      trace_id: data.trace_id,
+      sources: data.sources ?? [],
+      content: data.content,
+    });
   } else if (eventName === "error") {
     const data = payload as { code: string; message: string; trace_id?: string };
     handlers.onError?.({ code: data.code, message: data.message, trace_id: data.trace_id });

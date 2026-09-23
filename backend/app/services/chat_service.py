@@ -439,7 +439,8 @@ async def stream_rag_answer(
         # 与正常回答保持同样的事件序列：先 token（把文案推给前端），再 complete。
         # 这样前端不需要为「拒答」维护一条特殊路径。
         yield ("token", {"text": answer})
-        yield ("complete", {"trace_id": trace_id, "sources": []})
+        # 带上完整回答：前端以它为准覆盖逐字累积的文本，漏字时不必刷新页面。
+        yield ("complete", {"trace_id": trace_id, "sources": [], "content": answer})
         return
 
     if sources:
@@ -516,4 +517,6 @@ async def stream_rag_answer(
         len(answer),
         retrieval.count_tokens_estimate(answer),
     )
-    yield ("complete", {"trace_id": trace_id, "sources": sources})
+    # `content` 与落库、日志用的是同一个 `answer`，因此前端显示的文本与历史记录
+    # 必然一致——不会出现「流式显示的和刷新后看到的不一样」。
+    yield ("complete", {"trace_id": trace_id, "sources": sources, "content": answer})

@@ -215,19 +215,37 @@ export const useChatStore = defineStore("chat", () => {
       { key: nextKey("user"), role: "user", content: text, sources: [], traceId: null },
     ];
 
-    const assistant: ChatMessage = {
-      key: nextKey("ai"),
-      role: "assistant",
-      content: "",
-      sources: [],
-      traceId: null,
-      streaming: true,
-      error: null,
-      // 在发送这一刻定稿：库为空而降级时，回答结束时必须在气泡上说明
-      // 「这条没有依据知识库」。若不说，用户会以为内容来自自己的文档。
-      degraded: knowledgeDegraded.value,
-    };
-    messages.value = [...messages.value, assistant];
+    // 记下待插入位置。必须在写数组**之前**取。
+    const assistantIndex = messages.value.length;
+    messages.value = [
+      ...messages.value,
+      {
+        key: nextKey("ai"),
+        role: "assistant",
+        content: "",
+        sources: [],
+        traceId: null,
+        streaming: true,
+        error: null,
+        // 在发送这一刻定稿：库为空而降级时，回答结束时必须在气泡上说明
+        // 「这条没有依据知识库」。若不说，用户会以为内容来自自己的文档。
+        degraded: knowledgeDegraded.value,
+      },
+    ];
+
+    /**
+     * 从数组里取回**响应式代理**，后续所有流式写入都必须走它。
+     *
+     * 这是本项目最隐蔽的一个坑：写进 ref 数组的元素会被 Vue 包装成响应式代理，
+     * 而上面那个对象字面量是普通对象，**两者是不同的引用**。
+     * 若把它存进局部变量再执行 `assistant.content += token`，Vue 收不到任何通知——
+     * 数据一直在涨、界面一字不动，只有刷新页面（重新从历史接口拉取、生成全新的
+     * 响应式对象）才看得到完整回答。
+     *
+     * 通过 `messages.value[下标]` 读出来的才是代理，改它才会触发重渲染。
+     * 这一点无法从代码上"看出来"，必须知道 Vue 的这个语义。
+     */
+    const assistant = messages.value[assistantIndex];
 
     streaming.value = true;
     controller = new AbortController();
@@ -247,9 +265,16 @@ export const useChatStore = defineStore("chat", () => {
           onToken: (chunk) => {
             assistant.content += chunk;
           },
-          onComplete: ({ trace_id, sources }) => {
+          onComplete: ({ trace_id, sources, content }) => {
             assistant.traceId = trace_id;
             lastTraceId.value = trace_id;
+            // 用后端给的完整回答覆盖逐字累积的文本。
+            // 必要性：`api/chat.ts` 对单条解析失败的 SSE 消息是「跳过并继续」，
+            // 万一漏掉一个 token，累积文本会**永久缺字**，非刷新不可恢复。
+            // 以 complete 的完整内容为准可以兜住这种情况。
+            if (typeof content === "string" && content.length > 0) {
+              assistant.content = content;
+            }
             if (sources.length > 0) {
               assistant.sources = sources;
               lastSources.value = sources;
