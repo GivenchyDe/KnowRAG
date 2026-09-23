@@ -10,6 +10,7 @@ import type { UserMenuKey } from "@/components/UserMenu.vue";
 import { useAuthStore } from "@/stores/auth";
 import { useChatStore } from "@/stores/chat";
 import { useUiStore } from "@/stores/ui";
+import { toErrorMessage } from "@/types/errors";
 
 /**
  * 左侧边栏。
@@ -130,6 +131,46 @@ async function handleSelectConversation(conversationId: string): Promise<void> {
   await chat.openConversation(conversationId);
 }
 
+/** 重命名会话。失败时把后端给的可读原因弹出来，不静默吞掉。 */
+async function handleRenameConversation(conversationId: string, title: string): Promise<void> {
+  try {
+    await chat.renameConversation(conversationId, title);
+    ui.toast("会话已重命名", "success");
+  } catch (error) {
+    ui.toast(toErrorMessage(error), "error");
+  }
+}
+
+async function handleTogglePin(conversationId: string, isPinned: boolean): Promise<void> {
+  try {
+    await chat.setPinned(conversationId, isPinned);
+    ui.toast(isPinned ? "已置顶" : "已取消置顶", "success");
+  } catch (error) {
+    ui.toast(toErrorMessage(error), "error");
+  }
+}
+
+/**
+ * 删除会话前先确认。
+ *
+ * 原来的删除按钮是点一下直接删，删除会连同该会话的全部消息一起消失且无法恢复，
+ * 而按钮又正好在会话项右侧、鼠标移动路径上——误删概率很高。
+ */
+async function handleRemoveConversation(conversationId: string): Promise<void> {
+  const target = chat.conversations.find((item) => item.conversation_id === conversationId);
+  const confirmed = await ui.confirm({
+    title: "删除会话",
+    message: `确定要删除「${target?.title ?? "该会话"}」吗？该会话的全部消息也会一并删除，且无法恢复。`,
+    confirmText: "删除",
+    danger: true,
+  });
+  if (!confirmed) {
+    return;
+  }
+  await chat.removeConversation(conversationId);
+  ui.toast("会话已删除", "success");
+}
+
 function isActive(path: string): boolean {
   return route.path === path;
 }
@@ -158,7 +199,9 @@ const initialLetter = computed(() => (auth.displayName.slice(0, 1) || "?").toUpp
         :loading="chat.loadingConversations"
         @create="handleNewConversation"
         @select="handleSelectConversation"
-        @remove="chat.removeConversation($event)"
+        @rename="handleRenameConversation"
+        @toggle-pin="handleTogglePin"
+        @remove="handleRemoveConversation"
       />
     </div>
 

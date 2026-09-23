@@ -321,6 +321,36 @@ export const useChatStore = defineStore("chat", () => {
     }
   }
 
+  /**
+   * 重命名会话。
+   *
+   * 成功后重新拉取列表而不是就地改本地 title：置顶状态与排序都由后端决定，
+   * 本地改一半容易与服务端不一致（例如后端做了 trim / 截断）。
+   * 异常继续往上抛，让列表组件能弹出「重命名失败」的提示。
+   */
+  async function renameConversation(targetId: string, title: string): Promise<void> {
+    errorMessage.value = null;
+    try {
+      await chatApi.updateConversation(targetId, { title });
+      await loadConversations();
+    } catch (error) {
+      errorMessage.value = toErrorMessage(error);
+      throw error;
+    }
+  }
+
+  /** 置顶 / 取消置顶。成功后重新拉取列表，让置顶项按后端排序归位。 */
+  async function setPinned(targetId: string, isPinned: boolean): Promise<void> {
+    errorMessage.value = null;
+    try {
+      await chatApi.updateConversation(targetId, { is_pinned: isPinned });
+      await loadConversations();
+    } catch (error) {
+      errorMessage.value = toErrorMessage(error);
+      throw error;
+    }
+  }
+
   function reset(): void {
     stopStreaming();
     conversations.value = [];
@@ -354,6 +384,8 @@ export const useChatStore = defineStore("chat", () => {
     send,
     stopStreaming,
     removeConversation,
+    renameConversation,
+    setPinned,
     reset,
   };
 });

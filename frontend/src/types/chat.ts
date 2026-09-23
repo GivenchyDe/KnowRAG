@@ -27,8 +27,16 @@ export interface ChatStreamRequest {
 export interface Conversation {
   conversation_id: string;
   title: string;
+  /** 是否置顶。列表排序为「置顶优先，其次按更新时间」 */
+  is_pinned: boolean;
   created_at: string;
   updated_at: string;
+}
+
+/** 修改会话请求，对应 PATCH /api/chat/conversations/{id}。只提交要改的字段。 */
+export interface UpdateConversationRequest {
+  title?: string;
+  is_pinned?: boolean;
 }
 
 /** 会话列表响应 */
