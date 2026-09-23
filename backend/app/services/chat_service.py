@@ -103,17 +103,55 @@ def ensure_conversation(db: Session, user_id: int, conversation_id: str) -> Conv
 
 
 def list_conversations(db: Session, user_id: int, page: int, page_size: int) -> tuple[list[Conversation], int]:
-    """列出用户的会话，按最近更新倒序。"""
+    """列出用户的会话：置顶优先，其次按最近更新倒序。"""
     all_items = list(
         db.scalars(
             select(Conversation)
             .where(Conversation.user_id == user_id)
-            .order_by(Conversation.updated_at.desc(), Conversation.id.desc())
+            # is_pinned 必须是第一排序键：它的产品语义就是"始终在最前"，
+            # 若排在 updated_at 之后，一旦动过别的会话，置顶项就会被挤下去。
+            .order_by(
+                Conversation.is_pinned.desc(),
+                Conversation.updated_at.desc(),
+                Conversation.id.desc(),
+            )
         ).all()
     )
     total = len(all_items)
     start = (page - 1) * page_size
     return all_items[start : start + page_size], total
+
+
+def update_conversation(
+    db: Session, user_id: int, conversation_id: str, changes: dict[str, Any]
+) -> Conversation:
+    """重命名会话或切换置顶。
+
+    只处理 `changes` 里出现的键，未提交的字段保持原值。
+    会话归属校验交给 `get_conversation`——它刻意不区分「不存在」与「属于别人」，
+    避免攻击者用响应差异枚举出系统里存在哪些会话 ID。
+    """
+    conversation = get_conversation(db, user_id, conversation_id)
+
+    if "title" in changes:
+        title = (changes["title"] or "").strip()
+        if not title:
+            raise AppError(ErrorCode.VALIDATION_ERROR, "会话名称不能为空")
+        # schema 已限制到 100 字符，这里再按列宽兜一层，防止将来从别处传入超长值
+        conversation.title = title[:255]
+
+    if "is_pinned" in changes:
+        conversation.is_pinned = bool(changes["is_pinned"])
+
+    db.commit()
+    db.refresh(conversation)
+    logger.info(
+        "会话已更新 user_id=%s conversation_id=%s 字段=%s",
+        user_id,
+        conversation_id,
+        sorted(changes),
+    )
+    return conversation
 
 
 def delete_conversation(db: Session, user_id: int, conversation_id: str) -> None:

@@ -51,8 +51,21 @@ class ConversationResponse(BaseModel):
 
     conversation_id: str
     title: str
+    is_pinned: bool = False
     created_at: datetime
     updated_at: datetime
+
+
+class UpdateConversationRequest(BaseModel):
+    """修改会话（重命名 / 置顶）。
+
+    两个字段都是可选的，按「请求体里出现了哪些键」决定改什么，
+    与 `UpdateProfileRequest` 保持同一套约定。
+    """
+
+    # 上限 100：侧边栏标题超过这个长度已无法阅读，没必要放行到列宽 255。
+    title: str | None = Field(default=None, min_length=1, max_length=100, description="新会话名称")
+    is_pinned: bool | None = Field(default=None, description="是否置顶")
 
 
 class ConversationListResponse(BaseModel):

@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.core.errors import AppError, ErrorCode
 from app.core.logging import get_logger
 from app.db.session import get_db
 from app.models.user import User
@@ -25,6 +26,7 @@ from app.schemas.chat import (
     DeleteConversationResponse,
     MessageListResponse,
     MessageResponse,
+    UpdateConversationRequest,
 )
 from app.security.dependencies import get_current_active_user
 from app.services import chat_service
@@ -88,6 +90,37 @@ def delete_conversation(
     return DeleteConversationResponse(
         message="会话已删除", conversation_id=conversation_id
     )
+
+
+@router.patch(
+    "/conversations/{conversation_id}",
+    response_model=ConversationResponse,
+    summary="修改会话（重命名 / 置顶）",
+)
+def update_conversation(
+    conversation_id: str,
+    payload: UpdateConversationRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> ConversationResponse:
+    """重命名会话或切换置顶。
+
+    用 `model_fields_set` 判断「要改哪些字段」，与 `PATCH /auth/me` 同一套约定：
+    请求体里没出现的键一律不动。
+    """
+    changes: dict[str, object] = {}
+    if "title" in payload.model_fields_set:
+        changes["title"] = payload.title
+    if "is_pinned" in payload.model_fields_set:
+        changes["is_pinned"] = payload.is_pinned
+
+    if not changes:
+        raise AppError(ErrorCode.VALIDATION_ERROR, "请求体里没有需要更新的字段")
+
+    conversation = chat_service.update_conversation(
+        db, current_user.id, conversation_id, changes
+    )
+    return ConversationResponse.model_validate(conversation)
 
 
 @router.get(

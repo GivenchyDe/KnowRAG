@@ -9,7 +9,7 @@
 
 from __future__ import annotations
 
-from sqlalchemy import BigInteger, ForeignKey, Index, String
+from sqlalchemy import BigInteger, Boolean, ForeignKey, Index, String, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base, TimestampMixin
@@ -32,6 +32,13 @@ class Conversation(Base, TimestampMixin):
     )
     title: Mapped[str] = mapped_column(
         String(255), nullable=False, default="新会话", server_default="新会话"
+    )
+    # 置顶。列表排序为「置顶优先，其次按更新时间」。
+    #
+    # 用布尔值而不是 pinned_at 时间戳：产品上只需要「置顶 / 取消置顶」两个状态，
+    # 多个置顶项之间沿用 updated_at 排序就够，再引入一个时间维度只会让排序规则更难解释。
+    is_pinned: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("0")
     )
 
     def __repr__(self) -> str:
