@@ -2,9 +2,35 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- 标签页图标：用气泡版（favicon.ico 与 logo-bubble-128.png 均由
+         frontend/scripts/extract_bubble_logo.py 从源图抠出）。
+         ICO 内含 16/32/48 三档，浏览器按标签页实际尺寸挑。
+         apple-touch-icon 保持用完整图标（外层圆角方框那版）：iOS 添加到主屏时
+         会自动把图标切成圆角方形，用浮空的气泡反而会被裁得奇怪。 -->
+    <link rel="icon" href="/logo/favicon.ico" sizes="16x16 32x32 48x48" />
+    <link rel="icon" type="image/png" href="/logo/logo-bubble-32.png" sizes="32x32" />
+    <link rel="icon" type="image/png" href="/logo/logo-bubble-128.png" sizes="128x128" />
+    <link rel="apple-touch-icon" href="/logo/logo-192.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="KnowRAG · RAG 个人知识库问答系统" />
+    <!-- 防主题闪白：必须赶在样式表生效之前把 data-theme 定下来，
+         否则选了深色模式的用户会先看到一帧浅色背景再被切换。
+         存储键必须与 src/stores/theme.ts 的 THEME_STORAGE_KEY 保持一致。 -->
+    <script>
+      (function () {
+        try {
+          var mode = window.localStorage.getItem("knowrag.theme");
+          var prefersDark =
+            typeof window.matchMedia === "function" &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          var dark = mode === "dark" || ((mode === null || mode === "system") && prefersDark);
+          document.documentElement.dataset.theme = dark ? "dark" : "light";
+        } catch (error) {
+          // 隐私模式下 localStorage 会抛异常：退回浅色即可，不能因为主题判断失败让页面白屏
+          document.documentElement.dataset.theme = "light";
+        }
+      })();
+    </script>
     <title>KnowRAG · 个人知识库问答</title>
   </head>
   <body>

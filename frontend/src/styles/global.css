@@ -53,12 +53,85 @@
 
   --kr-transition: 160ms ease;
 
+  /* --- 交互面与中性面 ---
+     这些颜色原先在各组件里硬编码成 rgba(20,24,35,.0x)（近黑叠层）。
+     在深色主题下近黑叠层会完全看不见，hover 等状态会整片消失，
+     所以统一提升为 token，深色下换成白色叠层。 */
+  --kr-hover: rgba(20, 24, 35, 0.04);
+  --kr-sunken: rgba(20, 24, 35, 0.03);
+  --kr-muted-bg: rgba(20, 24, 35, 0.05);
+  --kr-code-bg: rgba(20, 24, 35, 0.06);
+  --kr-track: rgba(20, 24, 35, 0.07);
+  --kr-toggle-off: rgba(20, 24, 35, 0.15);
+  /* 输入框边框比常规边框更实一些，让可输入区域更明确 */
+  --kr-input-border: rgba(20, 24, 35, 0.22);
+  /* 主色 hover：浅色下加深，深色下必须变亮（见下面的 dark 覆盖） */
+  --kr-primary-hover: #3f6ce0;
+  /* 主色之上的文字色（按钮内文字）。深色下仍是白字，单独成 token 便于将来调整 */
+  --kr-on-primary: #ffffff;
+  /* 模态框遮罩。深色主题下近黑遮罩会"看不见"，需要加深才压得住背后的内容 */
+  --kr-overlay: rgba(20, 24, 35, 0.28);
+
   /* 滚动条：极细、半透明、悬停加深。详见文件末尾的滚动条样式块。
      半透明而不是实色，是为了让它压在面板/磨砂背景上也自然。 */
   --kr-scrollbar-thumb: rgba(20, 24, 35, 0.16);
   --kr-scrollbar-thumb-hover: rgba(20, 24, 35, 0.32);
   /* 6px：细到几乎不打扰阅读，同时仍可按住拖动 */
   --kr-scrollbar-size: 6px;
+}
+
+/**
+ * 深色主题。
+ *
+ * 挂在 `:root[data-theme="dark"]` 上，由 `stores/theme.ts` 写入 html 元素。
+ * 只覆盖**颜色与阴影**类 token，圆角/间距/字体/动效不变——
+ * 换主题不该改变布局，否则两套主题的排版会出现细微差异。
+ *
+ * 同时设置 `color-scheme: dark`：它会让浏览器把原生控件（滚动条、
+ * 自动填充背景、日期选择器等）也切到深色，否则输入框在深色页面里会突兀地发白。
+ */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --kr-bg: #14161c;
+  --kr-panel: rgba(28, 31, 40, 0.72);
+  --kr-panel-solid: #1c1f28;
+  --kr-border: rgba(255, 255, 255, 0.09);
+  --kr-border-strong: rgba(255, 255, 255, 0.16);
+
+  --kr-text: #e8eaf0;
+  --kr-text-secondary: #9aa3b2;
+  --kr-text-muted: #7b8494;
+
+  /* 主色提亮：同一个人蓝色在深底上的对比度会不足 */
+  --kr-primary: #6b93ff;
+  --kr-primary-soft: rgba(107, 147, 255, 0.16);
+  --kr-primary-hover: #8aa9ff;
+  --kr-on-primary: #10131a;
+
+  --kr-success: #34d399;
+  --kr-success-soft: rgba(52, 211, 153, 0.14);
+  --kr-warning: #fbbf24;
+  --kr-warning-soft: rgba(251, 191, 36, 0.14);
+  --kr-danger: #f87171;
+  --kr-danger-soft: rgba(248, 113, 113, 0.14);
+
+  /* 交互面翻转成白色叠层：近黑叠层在深底上等于没有 */
+  --kr-hover: rgba(255, 255, 255, 0.06);
+  --kr-sunken: rgba(255, 255, 255, 0.04);
+  --kr-muted-bg: rgba(255, 255, 255, 0.07);
+  --kr-code-bg: rgba(255, 255, 255, 0.08);
+  --kr-track: rgba(255, 255, 255, 0.1);
+  --kr-toggle-off: rgba(255, 255, 255, 0.2);
+  --kr-input-border: rgba(255, 255, 255, 0.22);
+  --kr-overlay: rgba(0, 0, 0, 0.55);
+
+  /* 深色下阴影要更重才看得出层次 */
+  --kr-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --kr-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+
+  --kr-scrollbar-thumb: rgba(255, 255, 255, 0.16);
+  --kr-scrollbar-thumb-hover: rgba(255, 255, 255, 0.3);
 }
 
 *,
@@ -214,7 +287,7 @@ pre {
 
 .kr-badge--neutral {
   color: var(--kr-text-secondary);
-  background: rgba(20, 24, 35, 0.05);
+  background: var(--kr-muted-bg);
 }
 
 /* --- 状态圆点 --- */
@@ -224,6 +297,140 @@ pre {
   border-radius: 50%;
   background: currentColor;
   flex: none;
+}
+
+/* =========================================================================== *
+ * 按钮与表单控件
+ *
+ * 放在全局而不是各组件里：本次新增了 Modal / 菜单 / 个人设置 / 通用设置等多处
+ * 表单，逐个组件复制按钮样式必然会走样。项目已有 `.kr-panel` / `.kr-badge`
+ * 这类全局工具类的先例，这里沿用同一约定。
+ * =========================================================================== */
+
+/* 按钮圆角按产品要求取 10px（小于卡片的 16px、输入框的 12px） */
+.kr-btn {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--kr-space-2);
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--kr-transition),
+    border-color var(--kr-transition),
+    color var(--kr-transition),
+    opacity var(--kr-transition);
+}
+
+.kr-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.kr-btn--primary {
+  background: var(--kr-primary);
+  color: var(--kr-on-primary);
+}
+
+.kr-btn--primary:hover:not(:disabled) {
+  background: var(--kr-primary-hover);
+}
+
+.kr-btn--ghost {
+  background: transparent;
+  border-color: var(--kr-border-strong);
+  color: var(--kr-text-secondary);
+}
+
+.kr-btn--ghost:hover:not(:disabled) {
+  background: var(--kr-hover);
+  color: var(--kr-text);
+}
+
+.kr-btn--danger {
+  background: var(--kr-danger);
+  color: #fff;
+}
+
+.kr-btn--danger:hover:not(:disabled) {
+  /* 危险色没有单独的 hover token：用 filter 压暗，深浅主题下都成立 */
+  filter: brightness(0.92);
+}
+
+/* --- 表单：标签 / 输入框 / 说明 / 错误 --- */
+.kr-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kr-label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--kr-text-secondary);
+}
+
+.kr-input {
+  font: inherit;
+  font-size: 13.5px;
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--kr-input-border);
+  background: var(--kr-panel-solid);
+  color: var(--kr-text);
+  transition:
+    border-color var(--kr-transition),
+    box-shadow var(--kr-transition),
+    background var(--kr-transition);
+}
+
+.kr-input::placeholder {
+  color: var(--kr-text-muted);
+}
+
+.kr-input:hover:not(:disabled) {
+  border-color: var(--kr-border-strong);
+}
+
+.kr-input:focus {
+  outline: none;
+  border-color: var(--kr-primary);
+  box-shadow: 0 0 0 3px var(--kr-primary-soft);
+}
+
+.kr-input:disabled {
+  background: var(--kr-sunken);
+  color: var(--kr-text-muted);
+  cursor: not-allowed;
+}
+
+/* 校验失败态：边框与提示文字同时变红，保证不只是靠颜色传达（还有文字说明） */
+.kr-input--invalid,
+.kr-input--invalid:hover:not(:disabled) {
+  border-color: var(--kr-danger);
+}
+
+.kr-input--invalid:focus {
+  box-shadow: 0 0 0 3px var(--kr-danger-soft);
+}
+
+.kr-help {
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--kr-text-muted);
+}
+
+.kr-error {
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--kr-danger);
 }
 
 /* --- 焦点可见性：键盘可达性，不影响鼠标交互视觉 --- */
