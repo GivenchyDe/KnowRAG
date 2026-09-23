@@ -4,6 +4,7 @@ import { createApp } from "vue";
 import { setUnauthorizedHandler } from "@/api/client";
 import App from "@/App.vue";
 import router from "@/router";
+import { useThemeStore } from "@/stores/theme";
 import "@/styles/global.css";
 
 const app = createApp(App);
@@ -12,6 +13,11 @@ const app = createApp(App);
 // 而 store 的实例化依赖已激活的 Pinia。
 app.use(createPinia());
 app.use(router);
+
+// 尽早实例化主题 store：它内部会立刻把 data-theme 写到 <html> 上。
+// index.html 里那段内联脚本已经做过一次（防闪白），这里是兜底——
+// 内联脚本被 CSP 拦掉、或用户在此期间改了系统主题时，仍能得到正确结果。
+useThemeStore();
 
 // 注册「会话彻底失效」的统一处理：access token 与 refresh token 都不可用时，
 // api/client.ts 会回调这里。没有这个处理的话，token 过期后页面只会出现一堆
