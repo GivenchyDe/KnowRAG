@@ -5,7 +5,13 @@ import * as authApi from "@/api/auth";
 import { refreshTokens } from "@/api/client";
 import { clearTokens, getAccessToken, getRefreshToken, saveTokens } from "@/auth/tokenStorage";
 import { toErrorMessage } from "@/types/errors";
-import type { LoginRequest, RegisterRequest, TokenResponse, User } from "@/types/auth";
+import type {
+  LoginRequest,
+  RegisterRequest,
+  TokenResponse,
+  UpdateProfileRequest,
+  User,
+} from "@/types/auth";
 
 /**
  * 认证状态。
@@ -29,6 +35,8 @@ export const useAuthStore = defineStore("auth", () => {
 
   const isAuthenticated = computed(() => user.value !== null && accessToken.value !== null);
   const displayName = computed(() => user.value?.username ?? "");
+  /** 头像地址；未设置时为 null，由界面退回用用户名首字母生成的文字头像。 */
+  const avatarUrl = computed(() => user.value?.avatar_url ?? null);
 
   function applyTokens(tokens: TokenResponse): void {
     accessToken.value = tokens.access_token;
@@ -148,6 +156,26 @@ export const useAuthStore = defineStore("auth", () => {
     errorMessage.value = null;
   }
 
+  /**
+   * 修改资料。
+   *
+   * 不写 `errorMessage`：那个字段是登录/注册表单专用的，
+   * 个人设置弹窗自己展示行内错误 + Toast，两处写同一个字段会互相串台。
+   * 因此这里让异常直接抛给调用方处理。
+   */
+  async function updateProfile(payload: UpdateProfileRequest): Promise<void> {
+    user.value = await authApi.updateProfile(payload);
+  }
+
+  /** 上传头像。后端只回 avatar_url，因此就地更新该字段，不再多发一次 /auth/me。 */
+  async function uploadAvatar(file: File): Promise<string> {
+    const result = await authApi.uploadAvatar(file);
+    if (user.value) {
+      user.value = { ...user.value, avatar_url: result.avatar_url };
+    }
+    return result.avatar_url;
+  }
+
   function clearError(): void {
     errorMessage.value = null;
   }
@@ -159,12 +187,15 @@ export const useAuthStore = defineStore("auth", () => {
     errorMessage,
     isAuthenticated,
     displayName,
+    avatarUrl,
     bootstrap,
     ensureSession,
     refreshSession,
     fetchCurrentUser,
     login,
     register,
+    updateProfile,
+    uploadAvatar,
     logout,
     clearError,
   };

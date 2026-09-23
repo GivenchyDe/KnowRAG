@@ -272,7 +272,7 @@ onBeforeUnmount(() => {
 }
 
 .ghost-btn:hover {
-  background: rgba(20, 24, 35, 0.04);
+  background: var(--kr-hover);
   color: var(--kr-text);
 }
 

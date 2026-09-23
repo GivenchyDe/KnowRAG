@@ -629,7 +629,7 @@ function needsRemoteKey(kind: "llm" | "embed" | "rerank"): boolean {
 }
 
 .field__control:hover {
-  border-color: rgba(20, 24, 35, 0.22);
+  border-color: var(--kr-input-border);
 }
 
 .field__control:focus {
@@ -668,7 +668,7 @@ function needsRemoteKey(kind: "llm" | "embed" | "rerank"): boolean {
   font-size: 12.5px;
   padding: 4px 10px;
   border-radius: var(--kr-radius-sm);
-  background: rgba(20, 24, 35, 0.05);
+  background: var(--kr-muted-bg);
   word-break: break-all;
 }
 
@@ -717,7 +717,7 @@ function needsRemoteKey(kind: "llm" | "embed" | "rerank"): boolean {
   font-size: 11.5px;
   padding: 1px 5px;
   border-radius: var(--kr-radius-sm);
-  background: rgba(20, 24, 35, 0.05);
+  background: var(--kr-muted-bg);
 }
 
 .btn {
@@ -733,12 +733,12 @@ function needsRemoteKey(kind: "llm" | "embed" | "rerank"): boolean {
 
 .btn--primary {
   padding: 10px 20px;
-  color: #fff;
+  color: var(--kr-on-primary);
   background: var(--kr-primary);
 }
 
 .btn--primary:hover:not(:disabled) {
-  background: #3f6ce0;
+  background: var(--kr-primary-hover);
 }
 
 .btn--primary:disabled {
@@ -755,7 +755,7 @@ function needsRemoteKey(kind: "llm" | "embed" | "rerank"): boolean {
 }
 
 .btn--ghost:hover:not(:disabled) {
-  background: rgba(20, 24, 35, 0.04);
+  background: var(--kr-hover);
   color: var(--kr-text);
 }
 

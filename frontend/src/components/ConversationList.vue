@@ -135,7 +135,7 @@ function formatTime(raw: string): string {
 }
 
 .conv__item:hover {
-  background: rgba(20, 24, 35, 0.04);
+  background: var(--kr-hover);
 }
 
 .conv__item--active {

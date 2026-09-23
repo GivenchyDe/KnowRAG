@@ -68,17 +68,15 @@ async function handleSubmit(): Promise<void> {
   <div class="auth-page">
     <div class="auth-card kr-panel">
       <header class="auth-head">
-        <span class="auth-mark" aria-hidden="true">
-          <svg viewBox="0 0 32 32" width="24" height="24">
-            <rect width="32" height="32" rx="9" fill="currentColor" />
-            <path
-              d="M11 10.5h10M11 16h6.5M11 21.5h4"
-              stroke="#fff"
-              stroke-width="2.2"
-              stroke-linecap="round"
-            />
-          </svg>
-        </span>
+        <!-- 品牌标识：用气泡版（去掉外层圆角方框）。128px 源图按 56px 显示，留 2x 余量。
+             alt 留空是因为紧随其后的标题已经说明了这是什么，图片纯装饰。 -->
+        <img
+          class="auth-mark"
+          src="/logo/logo-bubble-128.png"
+          width="56"
+          height="56"
+          alt=""
+        />
         <h1 class="auth-title">登录 KnowRAG</h1>
         <p class="auth-subtitle">你的个人知识库问答工作台</p>
       </header>
@@ -159,8 +157,13 @@ async function handleSubmit(): Promise<void> {
 }
 
 .auth-mark {
-  color: var(--kr-primary);
-  display: inline-flex;
+  /* 由内联 SVG 换成了位图：不再需要 color（原来靠 currentColor 上色），
+     尺寸显式写死以配合 HTML 的 width/height 属性避免布局抖动。
+     图片四角自带透明圆角，这里**不要**再加 border-radius，
+     否则会在自带圆角之外多切一圈。 */
+  width: 56px;
+  height: 56px;
+  display: block;
 }
 
 .auth-title {
@@ -208,7 +211,7 @@ async function handleSubmit(): Promise<void> {
 }
 
 .field__input:hover:not(:disabled) {
-  border-color: rgba(20, 24, 35, 0.22);
+  border-color: var(--kr-input-border);
 }
 
 .field__input:focus {
@@ -218,7 +221,7 @@ async function handleSubmit(): Promise<void> {
 }
 
 .field__input:disabled {
-  background: rgba(20, 24, 35, 0.03);
+  background: var(--kr-sunken);
   color: var(--kr-text-muted);
   cursor: not-allowed;
 }
@@ -236,13 +239,13 @@ async function handleSubmit(): Promise<void> {
 }
 
 .btn--primary {
-  color: #fff;
+  color: var(--kr-on-primary);
   background: var(--kr-primary);
   margin-top: var(--kr-space-1);
 }
 
 .btn--primary:hover:not(:disabled) {
-  background: #3f6ce0;
+  background: var(--kr-primary-hover);
 }
 
 .btn--primary:disabled {
