@@ -82,6 +82,13 @@ export interface ChatMessage {
 export interface StreamHandlers {
   onSources?: (sources: SourceItem[]) => void;
   onToken?: (text: string) => void;
-  onComplete?: (payload: { trace_id: string; sources: SourceItem[] }) => void;
+  /**
+   * 流结束。
+   *
+   * `content` 是后端给出的**完整回答**。它是可选字段（老后端不发），
+   * 存在的意义是兜住「逐 token 累积过程中漏字」的情况：以完整内容为准覆盖，
+   * 用户就不必刷新页面才能看到正确的回答。
+   */
+  onComplete?: (payload: { trace_id: string; sources: SourceItem[]; content?: string }) => void;
   onError?: (payload: { code: string; message: string; trace_id?: string }) => void;
 }
