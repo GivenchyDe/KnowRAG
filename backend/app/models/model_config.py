@@ -44,7 +44,7 @@ class ModelConfig(Base, TimestampMixin):
     llm_api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     llm_base_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
     llm_model: Mapped[str] = mapped_column(
-        String(128), nullable=False, default="deepseek-chat", server_default=text("'deepseek-chat'")
+        String(128), nullable=False, default="deepseek-v4-pro", server_default=text("'deepseek-v4-pro'")
     )
     llm_temperature: Mapped[float] = mapped_column(
         Float, nullable=False, default=0.1, server_default=text("0.1")
@@ -59,6 +59,12 @@ class ModelConfig(Base, TimestampMixin):
         String(32), nullable=False, default="qwen", server_default=text("'qwen'")
     )
     embed_api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 向量模型的接口地址。只有 provider = custom 时才被使用：
+    #   - qwen 走 DashScope 向量端点，地址由 SDK 固定；
+    #   - zhipu / siliconflow 的地址来自 provider 目录（default_base_url）；
+    #   - custom 没有任何可用的默认地址，必须由用户填写，因此需要一列来存。
+    # 可空：非 custom 的 provider 不需要这一列有值。
+    embed_base_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
     embed_model: Mapped[str] = mapped_column(
         String(128),
         nullable=False,
@@ -76,6 +82,8 @@ class ModelConfig(Base, TimestampMixin):
         String(32), nullable=False, default="qwen", server_default=text("'qwen'")
     )
     rerank_api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 同 embed_base_url：只有 provider = custom 时才被使用。
+    rerank_base_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
     rerank_model: Mapped[str] = mapped_column(
         String(128),
         nullable=False,

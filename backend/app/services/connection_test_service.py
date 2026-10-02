@@ -118,7 +118,9 @@ def _failure_from_status(status: int, *, provider: str) -> ConnectionTestOutcome
 # --------------------------------------------------------------------------- #
 
 
-def test_embedding(*, provider: str, model: str, api_key: str) -> ConnectionTestOutcome:
+def test_embedding(
+    *, provider: str, model: str, api_key: str, base_url: str | None = None
+) -> ConnectionTestOutcome:
     """生成一段固定文本的向量，确认模型真的能返回向量。
 
     为什么不再拿配置里的维度做判据：`embed_dimension` 已改为**后端按实测值维护**
@@ -131,7 +133,9 @@ def test_embedding(*, provider: str, model: str, api_key: str) -> ConnectionTest
     - 模型必须真的返回非空向量（返回空向量说明模型不可用，而不是"维度配置错了"）；
     - 向量必须全是有限数：`NaN` / `inf` 写进向量库后检索会静默出错，值得在这里挡下。
     """
-    embedding = retrieval.build_embedding(provider=provider, model=model, api_key=api_key)
+    embedding = retrieval.build_embedding(
+        provider=provider, model=model, api_key=api_key, base_url=base_url
+    )
 
     try:
         vector = embedding.get_query_embedding(_EMBEDDING_PROBE_TEXT)
@@ -170,7 +174,9 @@ def test_embedding(*, provider: str, model: str, api_key: str) -> ConnectionTest
 # --------------------------------------------------------------------------- #
 
 
-def test_reranker(*, provider: str, model: str, api_key: str) -> ConnectionTestOutcome:
+def test_reranker(
+    *, provider: str, model: str, api_key: str, base_url: str | None = None
+) -> ConnectionTestOutcome:
     """构造一正一负两条候选，检查重排后相关候选是否排在前面。
 
     判据有两层：
@@ -197,6 +203,7 @@ def test_reranker(*, provider: str, model: str, api_key: str) -> ConnectionTestO
         provider=provider,
         model=model,
         api_key=api_key,
+        base_url=base_url,
         query=_RERANK_PROBE_QUERY,
         passages=[irrelevant, relevant],
     )

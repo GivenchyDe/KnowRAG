@@ -298,24 +298,28 @@ def _build_embedding(config: ModelConfig):
 
     每次调用都新建：远程 provider 无状态、构造轻量，不做进程级缓存——
     缓存会让"改了配置却继续用旧实例"这类问题变得隐蔽。
+
+    **委托给 `retrieval.build_embedding`**，而不是在这里再写一遍 provider 分支：
+    摄取与查询必须用同一套构造。两处各写一遍时，"入库走了 A 端点、检索走 B 端点"
+    这类错配只会表现为向量空间不一致——检索结果莫名其妙地差，极难定位。
+    连接测试用的也是这一个函数，于是三条路径（摄取 / 查询 / 测试）天然一致。
     """
-    if config.embed_provider == "qwen":
-        from llama_index.embeddings.dashscope import DashScopeEmbedding
+    from app.rag.retrieval import build_embedding
+    from app.services.crypto_service import decrypt_api_key
+    from app.services.provider_catalog import resolve_base_url
 
-        from app.services.crypto_service import decrypt_api_key
-
-        if not config.embed_api_key_encrypted:
-            raise AppError(
-                ErrorCode.MODEL_CONFIG_INVALID,
-                "Embedding provider 为 qwen，但尚未填写 Embedding API Key",
-            )
-        return DashScopeEmbedding(
-            model_name=config.embed_model or "text-embedding-v4",
-            api_key=decrypt_api_key(config.embed_api_key_encrypted),
+    if not config.embed_api_key_encrypted:
+        raise AppError(
+            ErrorCode.MODEL_CONFIG_INVALID,
+            f"Embedding provider 为 {config.embed_provider}，但尚未填写 Embedding API Key",
         )
 
-    raise AppError(
-        ErrorCode.MODEL_CONFIG_INVALID, f"不支持的 Embedding provider：{config.embed_provider}"
+    return build_embedding(
+        provider=config.embed_provider,
+        model=config.embed_model or "text-embedding-v4",
+        api_key=decrypt_api_key(config.embed_api_key_encrypted),
+        # 已保存的地址优先、目录兜底；custom 两者皆无时由 build_embedding 报错。
+        base_url=resolve_base_url("embed", config.embed_provider, config.embed_base_url),
     )
 
 

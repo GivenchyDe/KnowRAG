@@ -23,7 +23,12 @@ from app.models.model_config import ModelConfig
 from app.models.user import User
 from app.schemas.config import ModelConfigUpdate
 from app.services.crypto_service import decrypt_api_key, encrypt_api_key, mask_api_key
-from app.services.provider_catalog import default_for, get_catalog, supported_values
+from app.services.provider_catalog import (
+    default_for,
+    get_catalog,
+    resolve_base_url,
+    supported_values,
+)
 
 logger = get_logger(__name__)
 
@@ -87,10 +92,12 @@ def get_or_create_config(db: Session) -> ModelConfig:
         user_id=None,
         llm_provider=llm_provider,
         llm_base_url=llm_default["default_base_url"] if llm_default else None,
-        llm_model=llm_default["default_model"] if llm_default else "deepseek-chat",
+        llm_model=llm_default["default_model"] if llm_default else "deepseek-v4-pro",
         embed_provider=embed_provider,
+        embed_base_url=embed_default["default_base_url"] if embed_default else None,
         embed_model=embed_default["default_model"] if embed_default else "text-embedding-v4",
         rerank_provider=rerank_provider,
+        rerank_base_url=rerank_default["default_base_url"] if rerank_default else None,
         rerank_model=rerank_default["default_model"] if rerank_default else "gte-rerank-v2",
     )
     db.add(config)
@@ -154,10 +161,12 @@ def build_config_response(config: ModelConfig) -> dict[str, object]:
         "llm_max_tokens": config.llm_max_tokens,
         "embed_provider": config.embed_provider,
         "embed_api_key_masked": masked(config.embed_api_key_encrypted),
+        "embed_base_url": config.embed_base_url,
         "embed_model": config.embed_model,
         "embed_dimension": config.embed_dimension,
         "rerank_provider": config.rerank_provider,
         "rerank_api_key_masked": masked(config.rerank_api_key_encrypted),
+        "rerank_base_url": config.rerank_base_url,
         "rerank_model": config.rerank_model,
         "updated_at": config.updated_at,
     }
@@ -193,6 +202,13 @@ _SAVED_MODEL_FIELD: dict[str, str] = {
     "embed": "embed_model",
     "rerank": "rerank_model",
 }
+# 三类各自的接口地址列。三个类别都有这一列（2026-10-02 起 Embedding / Reranker
+# 也各有一列），因此这里可以用同一套取值逻辑，不必再为某一类写特例。
+_SAVED_BASE_URL_FIELD: dict[str, str] = {
+    "llm": "llm_base_url",
+    "embed": "embed_base_url",
+    "rerank": "rerank_base_url",
+}
 
 
 def load_saved_connection_target(db: Session, *, kind: str, provider: str) -> SavedConnectionTarget:
@@ -211,9 +227,12 @@ def load_saved_connection_target(db: Session, *, kind: str, provider: str) -> Sa
     没有按用户分库的 Key，因此本函数不做 `user_id` 过滤——那样的过滤会让人误以为
     存在用户级隔离而实际并不存在。真正的边界是"必须登录"+上一条"地址不由调用方决定"。
 
-    关于 base_url：只有 LLM 有 `llm_base_url` 列。
-    Embedding / Reranker 的端点由 SDK 或常量决定，因此对这两类返回 `None`——
-    而不是编一个"看起来能用"的地址出来。
+    关于 base_url：三类模型各有自己的地址列（`llm_base_url` / `embed_base_url` /
+    `rerank_base_url`，后两列于 2026-10-02 加入）。取值为「已保存的地址优先，
+    其次目录里的默认地址」；两者都没有时为 `None`——qwen 的向量与重排走的是
+    DashScope 专属端点，地址由代码固定，这里**不编一个"看起来能用"的地址出来**
+    （那种值会被写进配置、被前端回显，却与实际调用地址无关）。
+    对 `provider = custom` 而言两者都会是空，此时构造层会明确报"必须填写接口地址"。
     """
     if kind not in _SAVED_KEY_COLUMN:
         raise AppError(ErrorCode.VALIDATION_ERROR, f"不支持的测试类别：{kind}")
@@ -238,11 +257,10 @@ def load_saved_connection_target(db: Session, *, kind: str, provider: str) -> Sa
     model = (getattr(config, _SAVED_MODEL_FIELD[kind]) or "").strip() or (
         option["default_model"] if option else ""
     )
-    base_url: str | None = None
-    if kind == "llm":
-        base_url = (config.llm_base_url or "").strip() or (
-            option["default_base_url"] if option else None
-        )
+    # 已保存的地址优先，其次目录里的默认地址；两者都没有则为 None。
+    # custom 的地址必须由用户填，因此这种情况下取到的就是用户保存的那一份，
+    # 依然满足"地址不由调用方决定"这条安全前提。
+    base_url = resolve_base_url(kind, provider, getattr(config, _SAVED_BASE_URL_FIELD[kind]))
 
     api_key = decrypt_api_key(ciphertext)
     # 只记脱敏后的形态；密钥的任何完整形态都不进日志（CODING_CONVENTIONS 第 8.2 节）。
@@ -299,10 +317,12 @@ def _apply_provider_defaults(
     if model_field not in changes and option["default_model"]:
         changes[model_field] = option["default_model"]
 
-    if kind == "llm":
-        base_url_field = "llm_base_url"
-        if base_url_field not in changes and option["default_base_url"]:
-            changes[base_url_field] = option["default_base_url"]
+    # 地址同理，三类一致处理。切到 custom 时这里写入的是 None（目录里没有默认地址），
+    # 于是上一个 provider 的地址被清掉、界面提示用户填写——而不是留下一份
+    # 属于别的 provider 的地址继续生效。
+    base_url_field = _SAVED_BASE_URL_FIELD[kind]
+    if base_url_field not in changes:
+        changes[base_url_field] = option["default_base_url"]
 
 
 def update_config(

@@ -36,12 +36,26 @@ tzdata>=2024.1
 cryptography>=42.0,<47.0
 httpx>=0.27,<1.0
 
+# Phase 2 多 Provider（2026-10-02）：
+#   除 DeepSeek / Qwen 走各自官方 SDK 外，智谱 / MiMo / 硅基流动 / 自定义端点
+#   都提供 OpenAI 兼容接口，因此用下面的包统一对接 LLM，而不是每家再装一个 SDK：
+#     llama-index-llms-openai-like    LLM（OpenAILike + api_base，需 is_chat_model=True）
+#   本机 conda 环境（Python 3.13.14）实测 0.8.0，**必须显式声明**：
+#   与 tzdata 同理，靠传递依赖会在换机器 / 构建镜像时突然 ImportError。
+llama-index-llms-openai-like>=0.8,<1.0
+#
+# 注意**没有** llama-index-embeddings-openai：它把 `model` 限定在 OpenAI 自家模型枚举
+# （OpenAIEmbeddingModelType）里，传 `embedding-3` / `BAAI/bge-m3` 这类第三方模型名会直接
+# ValueError（已实测）。向量因此改由 `rag/retrieval.OpenAICompatibleEmbedding` 直接调
+# OpenAI 兼容的 `/embeddings` 接口实现，不依赖该包。
+
 # 以下依赖按阶段引入，启用前请先确认本机 conda 环境是否已安装：
 #   Phase 2 模型配置   : cryptography（本机已有 50.0.1）
 #   Phase 3 文档摄取   : python-multipart、chromadb、llama-index-*（本机已有）
-#   Phase 4 RAG 问答   : llama-index-llms-deepseek / dashscope、sentence-transformers（本机已有）
-#   Phase 4 本地 LLM   : llama-index-llms-openai-like（本机已有）
-#                        LLM provider = local 时用它对接 Ollama / vLLM / LM Studio
-#                        这类 OpenAI 兼容端点。本机 conda 环境恰好已装，但**必须显式声明**：
-#                        与 tzdata 同理，靠传递依赖会在换机器/构建镜像时突然 ImportError。
+#   Phase 4 RAG 问答   : llama-index-llms-deepseek（0.4.1）/ llama-index-llms-dashscope（0.6.0）、
+#                        llama-index-embeddings-dashscope（0.6.0）（本机已有）
 #   Phase 3+ 可选存储  : pymongo / motor（docstore）、redis（chat_store）（本机已有）
+#
+# 已移除：`llama-index-llms-openai-like` 原先只被"本地 LLM"分支使用（provider = local
+# 时对接 Ollama / vLLM / LM Studio）。本地方案已于 2026-10-02 整体移除，但该包转而
+# 用于远程的 OpenAI 兼容 provider（见上方 Phase 2 多 Provider），因此仍然需要。

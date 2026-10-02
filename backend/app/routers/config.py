@@ -27,7 +27,11 @@ from app.schemas.config import (
 from app.security.dependencies import get_current_active_user
 from app.services import config_service, connection_test_service, index_service
 from app.services.crypto_service import mask_api_key
-from app.services.provider_catalog import default_for, supported_values
+from app.services.provider_catalog import (
+    default_for,
+    requires_explicit_base_url,
+    supported_values,
+)
 
 logger = get_logger(__name__)
 
@@ -152,8 +156,17 @@ def test_connection(
         model = (payload.model or "").strip() or (option["default_model"] if option else "")
         key_from = "request"
 
-    if payload.kind == "llm" and not base_url:
-        raise AppError(ErrorCode.MODEL_CONFIG_INVALID, "缺少 base_url，且该 provider 没有默认地址")
+    if not base_url and (
+        payload.kind == "llm"
+        or requires_explicit_base_url(payload.kind, payload.provider)
+    ):
+        # LLM 的地址是必填的（DeepSeek 之外都是 OpenAI 兼容端点，没有地址无从发起请求）；
+        # Embedding / Reranker 里只有 custom 需要用户提供地址，其余两类的端点
+        # 由代码固定或目录给出，因此不在这里拦。
+        raise AppError(
+            ErrorCode.MODEL_CONFIG_INVALID,
+            "缺少 base_url，且该 provider 没有默认地址",
+        )
 
     # 记录尝试本身（trace_id 便于与访问日志、错误响应串起来）。
     # 只写脱敏 Key：明文与密文都不进日志。
@@ -174,14 +187,14 @@ def test_connection(
         )
     elif payload.kind == "embed":
         outcome = connection_test_service.test_embedding(
-            provider=payload.provider, model=model, api_key=api_key
+            provider=payload.provider, model=model, api_key=api_key, base_url=base_url
         )
         outcome = _sync_measured_dimension(
             db, outcome, provider=payload.provider, model=model
         )
     else:
         outcome = connection_test_service.test_reranker(
-            provider=payload.provider, model=model, api_key=api_key
+            provider=payload.provider, model=model, api_key=api_key, base_url=base_url
         )
 
     return ConnectionTestResponse(

@@ -29,7 +29,7 @@ from app.models.model_config import ModelConfig
 from app.rag import prompts, retrieval
 from app.services import config_service, index_service
 from app.services.crypto_service import decrypt_api_key
-from app.services.provider_catalog import LLMProvider
+from app.services.provider_catalog import CUSTOM_PROVIDER, LLMProvider
 
 logger = get_logger(__name__)
 
@@ -282,7 +282,7 @@ def _build_llm(config: ModelConfig, *, model: str | None, temperature: float | N
         from llama_index.llms.deepseek import DeepSeek
 
         kwargs: dict[str, Any] = {
-            "model": resolved_model or "deepseek-chat",
+            "model": resolved_model or "deepseek-v4-pro",
             "api_key": api_key,
             "temperature": resolved_temperature,
             "max_tokens": resolved_max_tokens,
@@ -296,15 +296,78 @@ def _build_llm(config: ModelConfig, *, model: str | None, temperature: float | N
 
         # DashScope 走阿里云兼容模式端点，base_url 由 SDK 内部管理，这里不额外传。
         return DashScope(
-            model_name=resolved_model or "qwen-plus",
+            model_name=resolved_model or "qwen3.7-plus",
             api_key=api_key,
             temperature=resolved_temperature,
             max_tokens=resolved_max_tokens,
             incremental_output=True,
         )
 
+    if config.llm_provider in _OPENAI_COMPATIBLE_LLM_PROVIDERS:
+        # 这些 provider 的地址来自配置（custom 由用户填）或目录的 default_base_url；
+        # 目录兜底在 config_service 写入配置时就已完成，这里只用配置里的值。
+        return _build_openai_compatible_llm(
+            provider=config.llm_provider,
+            model=resolved_model,
+            api_key=api_key,
+            base_url=config.llm_base_url,
+            temperature=resolved_temperature,
+            max_tokens=resolved_max_tokens,
+        )
+
     raise AppError(
         ErrorCode.MODEL_CONFIG_INVALID, f"不支持的 LLM provider：{config.llm_provider}"
+    )
+
+
+# 走 OpenAI 兼容 `/chat/completions` 的 LLM provider。
+#
+# 与目录的关系：本集合加上 {deepseek, qwen} 必须等于
+# `provider_catalog.supported_values("llm")`。之所以不写成"凡是不认识的就按
+# OpenAI 兼容处理"，是因为那样一旦目录里加进一个接口形状不同的 provider，
+# 就会静默走错协议——报错会出现在模型侧，看起来像"Key 无效"，很难定位。
+_OPENAI_COMPATIBLE_LLM_PROVIDERS: frozenset[str] = frozenset(
+    {"zhipu", "mimo", "siliconflow", CUSTOM_PROVIDER}
+)
+
+
+def _build_openai_compatible_llm(
+    *,
+    provider: str,
+    model: str,
+    api_key: str,
+    base_url: str | None,
+    temperature: float,
+    max_tokens: int,
+):
+    """构造调用 OpenAI 兼容接口的 LLM 实例。
+
+    用 `OpenAILike` 而不是给每家装一个 SDK：智谱 / MiMo / 硅基流动 / 自建端点
+    都提供 OpenAI 兼容接口，差异只在 base_url。这样"新增一家 provider"的成本
+    是往目录里加一个目录项，而不是再引入一个依赖并承担各家参数语义漂移。
+    """
+    from llama_index.llms.openai_like import OpenAILike
+
+    resolved_base_url = (base_url or "").strip()
+    if not resolved_base_url:
+        # custom 必然走到这里（目录里没有默认地址，也不该由代码猜一个）。
+        raise AppError(
+            ErrorCode.MODEL_CONFIG_INVALID,
+            f"{provider} 需要填写接口地址（base_url），请到「模型设置」页补上",
+        )
+
+    return OpenAILike(
+        model=model,
+        api_base=resolved_base_url,
+        api_key=api_key,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        # 两个必须显式设置的字段，默认值都不适用于本场景：
+        #   is_chat_model 默认为 False → 会去请求 /completions 而不是 /chat/completions；
+        #   context_window 默认为 3900 → 太小，会让长上下文模型在计数上被当成小模型。
+        # 这里给的 128K 只是量级估计（用于 token 计数与日志），真实上限由供应商判定。
+        is_chat_model=True,
+        context_window=131072,
     )
 
 

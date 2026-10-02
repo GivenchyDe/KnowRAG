@@ -31,6 +31,9 @@ class ModelConfigResponse(BaseModel):
 
     embed_provider: str
     embed_api_key_masked: str | None
+    # 向量模型的接口地址。只有 provider 为 custom 时才有意义（其余 provider 的
+    # 端点由代码固定或目录给出），因此它同时是"界面是否需要用户填地址"的判据。
+    embed_base_url: str | None
     embed_model: str
     # 后端按模型**实测**值维护（见 index_service.sync_embedding_dimension），
     # 请求体里不存在该字段；返回它是为了让运维与状态接口能看到当前生效的维度。
@@ -38,6 +41,7 @@ class ModelConfigResponse(BaseModel):
 
     rerank_provider: str
     rerank_api_key_masked: str | None
+    rerank_base_url: str | None
     rerank_model: str
 
     updated_at: datetime | None
@@ -66,6 +70,10 @@ class ModelConfigUpdate(BaseModel):
 
     embed_provider: str | None = None
     embed_api_key: str | None = None
+    # 只有 provider = custom 时才需要：其余 provider 的向量端点由代码固定
+    # （qwen）或由目录给出（zhipu / siliconflow），用户填了也不会被使用，
+    # 因此界面上只在 custom 时显示这个输入框。
+    embed_base_url: str | None = None
     embed_model: str | None = None
     # 没有 embed_model_path / embed_dimension：本地模型方案已移除，
     # 向量维度则由后端按实测值维护（`index_service.sync_embedding_dimension`），
@@ -73,6 +81,8 @@ class ModelConfigUpdate(BaseModel):
 
     rerank_provider: str | None = None
     rerank_api_key: str | None = None
+    # 同 embed_base_url：只有 custom 需要。
+    rerank_base_url: str | None = None
     rerank_model: str | None = None
 
     # 已从契约中删除的字段。它们过去都可以提交，现在各有归属：
@@ -111,6 +121,20 @@ class ModelConfigUpdate(BaseModel):
             raise ValueError("模型名不能为空")
         return value
 
+    @field_validator("llm_base_url", "embed_base_url", "rerank_base_url")
+    @classmethod
+    def _normalize_base_url(cls, value: str | None) -> str | None:
+        """base_url 去掉首尾空白；只有空白视同"没填"。
+
+        不能把纯空白原样存进库：它非空、因而会被当成"已填地址"，
+        拼出来的请求地址就成了 `" /chat/completions"` 这种形态，
+        报错信息只会指向网络问题，排查成本很高。
+        """
+        if value is None:
+            return None
+        stripped = value.strip()
+        return stripped or None
+
 
 class ModelConfigUpdateResponse(BaseModel):
     """PUT /api/config/model 的响应。
@@ -125,14 +149,36 @@ class ModelConfigUpdateResponse(BaseModel):
     message: str
 
 
+class ModelOptionResponse(BaseModel):
+    """目录里的一个预设模型。
+
+    `models` 是**下拉建议**而不是白名单：前端用 `<datalist>` 呈现，
+    用户可以直接输入列表之外的模型 ID（供应商上新远快于本项目发版）。
+    """
+
+    value: str
+    label: str
+    # 该 provider 的推荐型号：前端排在列表最前并加「⭐ 推荐」标记
+    recommended: bool = False
+
+
 class ProviderOptionResponse(BaseModel):
     """provider 目录项。"""
 
     value: str
     label: str
+    # None 表示没有可直接使用的默认地址：或由代码固定（qwen 的向量/重排端点），
+    # 或必须由用户填写（custom）。
     default_base_url: str | None
+    # custom 为空字符串：没有可推荐的默认模型，必须由用户填写。
     default_model: str
-    suggested_models: list[str]
+    # 该 provider 的地址是否必须由用户填写（当前只有 custom 为 True）。
+    # 前端据此决定是否显示地址输入框——**不要**用 `default_base_url is None` 代替：
+    # qwen 的向量/重排也没有可展示的地址，但端点由代码固定，用户不需要填。
+    requires_base_url: bool = False
+    # 预设模型列表（custom 为空列表）。字段名由 2026-10-02 的
+    # `suggested_models: list[str]` 改名而来：字符串列表无法表达显示名与推荐标记。
+    models: list[ModelOptionResponse] = Field(default_factory=list)
 
 
 class ProvidersResponse(BaseModel):
