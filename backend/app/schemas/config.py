@@ -7,9 +7,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, ClassVar, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # 允许的连接测试目标。用 Literal 而不是自由字符串，避免接口被当成
 # 「任意地址探测工具」使用。
@@ -32,14 +32,13 @@ class ModelConfigResponse(BaseModel):
     embed_provider: str
     embed_api_key_masked: str | None
     embed_model: str
-    # 本地模型目录属于部署信息，不是密钥，可以返回；未配置时由后端用环境变量兜底
-    embed_model_path: str | None
+    # 后端按模型**实测**值维护（见 index_service.sync_embedding_dimension），
+    # 请求体里不存在该字段；返回它是为了让运维与状态接口能看到当前生效的维度。
     embed_dimension: int
 
     rerank_provider: str
     rerank_api_key_masked: str | None
     rerank_model: str
-    rerank_model_path: str | None
 
     updated_at: datetime | None
 
@@ -68,13 +67,37 @@ class ModelConfigUpdate(BaseModel):
     embed_provider: str | None = None
     embed_api_key: str | None = None
     embed_model: str | None = None
-    embed_model_path: str | None = None
-    embed_dimension: int | None = Field(default=None, ge=1, le=8192)
+    # 没有 embed_model_path / embed_dimension：本地模型方案已移除，
+    # 向量维度则由后端按实测值维护（`index_service.sync_embedding_dimension`），
+    # 前端不提交、也不允许提交。
 
     rerank_provider: str | None = None
     rerank_api_key: str | None = None
     rerank_model: str | None = None
-    rerank_model_path: str | None = None
+
+    # 已从契约中删除的字段。它们过去都可以提交，现在各有归属：
+    #   - embed_dimension：改由后端按模型实测值维护；
+    #   - embed_model_path / rerank_model_path：随本地模型方案一起移除。
+    _REMOVED_FIELDS: ClassVar[dict[str, str]] = {
+        "embed_dimension": "向量维度已改由后端按模型实测值维护，不再接受前端提交",
+        "embed_model_path": "本地模型方案已移除，不再有本地 Embedding 模型路径",
+        "rerank_model_path": "本地模型方案已移除，不再有本地 Reranker 模型路径",
+    }
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_removed_fields(cls, data: Any) -> Any:
+        """拒绝请求体里已被删除的字段。
+
+        为什么不静默忽略（pydantic 的默认行为）：这些字段以前是可填的，静默忽略会让
+        调用方（尤其是没跟着升级的前端）以为"设置生效了"。显式 422 至少能让人立刻发现
+        契约变了——"以为改了就生效"正是本次清理要消灭的那类误解。
+        """
+        if isinstance(data, dict):
+            for field, message in cls._REMOVED_FIELDS.items():
+                if field in data:
+                    raise ValueError(message)
+        return data
 
     @field_validator("llm_model", "embed_model", "rerank_model")
     @classmethod
@@ -125,6 +148,14 @@ class ConnectionTestRequest(BaseModel):
 
     `api_key` 由前端传入**用户当前输入框里的值**，而不是从库里读：
     这样用户可以在保存前先验证 Key 是否有效，避免存下一把无效的 Key。
+
+    `use_saved_key=True` 时改用**数据库里已保存的 Key**（用户不必重新粘贴一遍）。
+    该能力的安全前提是三条约束同时成立（`docs/DESIGN_IMPLEMENTATION.md` 第 6.2 节）：
+    1. 必须登录（接口依赖 `get_current_active_user`）；
+    2. **目标地址只取服务端已保存的值**——否则请求方可以把 Key 指向自己的地址，
+       凭空造出一条密钥外泄通道（详见 `config_service.load_saved_connection_target`）；
+    3. 日志只出现脱敏 Key。
+    接口**不得**退化成"用服务端密钥发任意请求"的通用代理。
     """
 
     kind: ConnectionTestKind
@@ -132,6 +163,8 @@ class ConnectionTestRequest(BaseModel):
     api_key: str | None = None
     base_url: str | None = None
     model: str | None = None
+    # 默认 False：老前端不带这个字段时行为完全不变（向后兼容）。
+    use_saved_key: bool = False
 
 
 class ConnectionTestResponse(BaseModel):
@@ -139,8 +172,11 @@ class ConnectionTestResponse(BaseModel):
 
     刻意不包含供应商返回的原始错误信息：那可能带上账号、额度、请求 ID 等
     敏感细节（`docs/CODING_CONVENTIONS.md` 第 9 节要求不得泄露供应商内部细节）。
+    `detail` 只放**本项目自己算出**的诊断信息（如实测向量维度、重排分数），
+    **不含任何凭据**。
     """
 
     success: bool
     code: str
     message: str
+    detail: dict[str, Any] | None = None

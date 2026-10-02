@@ -8,8 +8,9 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # 项目根目录：backend/app/core/config.py -> backend/app/core -> backend/app -> backend -> 根
@@ -49,6 +50,27 @@ class Settings(BaseSettings):
     jwt_refresh_expire_days: int = Field(default=7, description="refresh token 有效期（天）")
     fernet_key: str = Field(default="", description="API Key 对称加密密钥，需为合法 Fernet key")
 
+    # --- Token 有效期上限策略（安全要求，放宽前请确认业务方）---
+    # 三条约束同时生效，实际 exp 取最早的那个：
+    #   1. 类型自身的有效期（jwt_expire_minutes / jwt_refresh_expire_days）
+    #   2. token_max_age_days：签发后的绝对最长天数
+    #   3. 每月 token_monthly_expire_day 号 00:00:00（token_timezone）强制过期
+    # 见 app/security/token_lifetime.py。
+    token_max_age_days: int = Field(
+        default=7, ge=1, le=90, description="token 签发后的最长有效天数（绝对上限）"
+    )
+    token_monthly_expire_day: int = Field(
+        default=1,
+        ge=1,
+        le=28,
+        description="每月第几天 00:00:00 强制过期（业务要求为 1 号）。"
+        "上限取 28 而不是 31：只有 1-28 在每个月都存在，"
+        "否则 2 月没有 31 号、边界日会被迫顺延到下个月，语义变得不确定",
+    )
+    token_timezone: str = Field(
+        default="Asia/Shanghai", description="月度过期时刻所用时区（IANA 名称，如 Asia/Shanghai）"
+    )
+
     # --- 数据库与向量库（Phase 1 / Phase 3 使用）---
     # 数据库选型偏离说明：docs/DESIGN_IMPLEMENTATION.md 原定 PostgreSQL，
     # 但本机只提供 MySQL 8.0（数据目录通过 DataGrip 管理），且 7 张业务表均为
@@ -64,15 +86,18 @@ class Settings(BaseSettings):
     chroma_host: str = Field(default="localhost", description="Chroma 服务地址")
     chroma_port: int = Field(default=8000, description="Chroma 服务端口")
 
-    # --- 本地模型路径与推理设备（Phase 3 / Phase 4 使用）---
-    local_bge_m3_path: str = Field(default="", description="本地 bge-m3 模型目录")
-    local_bge_reranker_path: str = Field(default="", description="本地 bge-reranker-large 模型目录")
-    # 设备取值 auto / cpu / cuda：
-    # - auto 会检测 torch.cuda.is_available()，可用则用 GPU，否则回落 CPU；
-    # - 显式写 cuda 时若环境不支持会直接报错，而不是静默降级——
-    #   否则用户以为在用 GPU，实际一直在跑 CPU，性能问题会很难排查。
-    embed_device: str = Field(default="auto", description="Embedding 推理设备：auto / cpu / cuda")
-    rerank_device: str = Field(default="auto", description="Reranker 推理设备：auto / cpu / cuda")
+    # --- 默认 provider（运维入口，非前端可配置项）---
+    # 新建配置行时的初值，让"默认用哪家远程服务"可运维调整，而不是写死在创建逻辑里。
+    # 取值不在 provider 目录里时会回退到目录第一项并告警，不会导致启动失败。
+    default_llm_provider: str = Field(
+        default="deepseek", description="新建配置时 LLM 的初始 provider（deepseek / qwen）"
+    )
+    default_embed_provider: str = Field(
+        default="qwen", description="新建配置时 Embedding 的初始 provider（qwen）"
+    )
+    default_rerank_provider: str = Field(
+        default="qwen", description="新建配置时 Reranker 的初始 provider（qwen）"
+    )
 
     # --- 向量库（Phase 3 使用）---
     # 双模式设计：
@@ -129,6 +154,26 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         """是否为生产环境。生产环境需要更严格的默认行为（如关闭 /docs）。"""
         return self.app_env.lower() == "production"
+
+    @field_validator("token_timezone")
+    @classmethod
+    def _validate_token_timezone(cls, value: str) -> str:
+        """启动时校验时区名，读不到 IANA 数据就直接启动失败。
+
+        为什么必须在这里拦：`ZoneInfo` 查不到时区会在**签发 token 时**抛
+        `ZoneInfoNotFoundError`，那时用户看到的是"登录失败"，而真正的原因是配置写错，
+        排查成本很高。另外漏装 `tzdata` 包（Windows 与精简镜像上没有系统时区库）
+        也表现为同一个异常，提前报错能直接把方向指出来。
+        """
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(
+                f"TOKEN_TIMEZONE={value!r} 不是有效的 IANA 时区名（示例：Asia/Shanghai）。"
+                "若时区名本身正确，请确认已安装 `tzdata` 包"
+                "（Windows 与精简容器没有系统时区数据库）"
+            ) from exc
+        return value
 
     @model_validator(mode="after")
     def _validate_secrets(self) -> Settings:

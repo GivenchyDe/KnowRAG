@@ -54,30 +54,34 @@ class ModelConfig(Base, TimestampMixin):
     )
 
     # --- Embedding ---
+    # 本系统只支持远程 provider（本地模型方案已于 2026-10-02 移除），默认值因此是 qwen。
     embed_provider: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="local", server_default=text("'local'")
+        String(32), nullable=False, default="qwen", server_default=text("'qwen'")
     )
     embed_api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     embed_model: Mapped[str] = mapped_column(
-        String(128), nullable=False, default="BAAI/bge-m3", server_default=text("'BAAI/bge-m3'")
+        String(128),
+        nullable=False,
+        default="text-embedding-v4",
+        server_default=text("'text-embedding-v4'"),
     )
-    embed_model_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 向量维度由后端按模型**实测**值维护（连接测试 / 摄取时写回），前端不提供输入框。
+    # 默认值只是为了新建配置行时字段非空，第一次真正调用模型后会被校正。
     embed_dimension: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1024, server_default=text("1024")
     )
 
     # --- Reranker ---
     rerank_provider: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="local", server_default=text("'local'")
+        String(32), nullable=False, default="qwen", server_default=text("'qwen'")
     )
     rerank_api_key_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     rerank_model: Mapped[str] = mapped_column(
         String(128),
         nullable=False,
-        default="bge-reranker-large",
-        server_default=text("'bge-reranker-large'"),
+        default="gte-rerank-v2",
+        server_default=text("'gte-rerank-v2'"),
     )
-    rerank_model_path: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     def __repr__(self) -> str:
         """只输出非敏感字段：加密后的 Key 不进入日志或调试输出。"""

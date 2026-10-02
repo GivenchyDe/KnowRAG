@@ -21,9 +21,14 @@ pymysql>=1.1,<2.0
 #                 bcrypt 5.x 存在已知兼容问题，改为直调 bcrypt，详见 app/security/password.py）
 #   PyJWT         JWT 签发与校验（未采用 python-jose：其历史版本存在安全问题且维护不活跃）
 #   email-validator  为 pydantic 的 EmailStr 提供校验支持
+#   tzdata         IANA 时区数据库，供标准库 zoneinfo 使用（token 月度过期策略依赖它）。
+#                  Windows 与精简容器**没有**系统时区库，此时 ZoneInfo("Asia/Shanghai")
+#                  只能靠这个包；本机 conda 环境恰好已自带，不显式声明就会在换机器 /
+#                  构建镜像时突然报 ZoneInfoNotFoundError。
 bcrypt>=4.0,<6.0
 PyJWT>=2.8,<3.0
 email-validator>=2.1,<3.0
+tzdata>=2024.1
 
 # Phase 2 模型配置：
 #   cryptography  Fernet 对称加密，用于加密用户填写的模型 API Key
@@ -35,4 +40,8 @@ httpx>=0.27,<1.0
 #   Phase 2 模型配置   : cryptography（本机已有 50.0.1）
 #   Phase 3 文档摄取   : python-multipart、chromadb、llama-index-*（本机已有）
 #   Phase 4 RAG 问答   : llama-index-llms-deepseek / dashscope、sentence-transformers（本机已有）
+#   Phase 4 本地 LLM   : llama-index-llms-openai-like（本机已有）
+#                        LLM provider = local 时用它对接 Ollama / vLLM / LM Studio
+#                        这类 OpenAI 兼容端点。本机 conda 环境恰好已装，但**必须显式声明**：
+#                        与 tzdata 同理，靠传递依赖会在换机器/构建镜像时突然 ImportError。
 #   Phase 3+ 可选存储  : pymongo / motor（docstore）、redis（chat_store）（本机已有）

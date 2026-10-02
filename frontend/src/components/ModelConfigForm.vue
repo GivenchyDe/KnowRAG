@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
 
+import TestConnectionButton from "@/components/TestConnectionButton.vue";
 import { useConfigStore } from "@/stores/config";
 import type { ModelConfigUpdate, ProviderOption } from "@/types/config";
 
@@ -31,12 +32,9 @@ const draft = reactive({
   embedProvider: "",
   embedApiKey: "",
   embedModel: "",
-  embedModelPath: "",
-  embedDimension: 1024,
   rerankProvider: "",
   rerankApiKey: "",
   rerankModel: "",
-  rerankModelPath: "",
 });
 
 /** 是否正在替换某把 Key（点击「替换」后为 true，用于切换输入框与脱敏展示）。 */
@@ -46,8 +44,6 @@ const clearingKey = reactive({ llm: false, embed: false, rerank: false });
 
 const formError = ref<string | null>(null);
 const successMessage = ref<string | null>(null);
-const testResult = ref<{ success: boolean; message: string } | null>(null);
-const testing = ref(false);
 
 const config = computed(() => configStore.config);
 const providers = computed(() => configStore.providers);
@@ -66,12 +62,9 @@ function syncDraft(): void {
 
   draft.embedProvider = current.embed_provider;
   draft.embedModel = current.embed_model;
-  draft.embedModelPath = current.embed_model_path ?? "";
-  draft.embedDimension = current.embed_dimension;
 
   draft.rerankProvider = current.rerank_provider;
   draft.rerankModel = current.rerank_model;
-  draft.rerankModelPath = current.rerank_model_path ?? "";
 
   draft.llmApiKey = "";
   draft.embedApiKey = "";
@@ -89,7 +82,7 @@ onMounted(async () => {
   syncDraft();
 });
 
-/** 取某类别的 provider 选项。 */
+/** 某类别的 provider 选项。取值一律来自后端目录，前端不硬编码 provider 与模型名。 */
 function optionsFor(kind: "llm" | "embed" | "rerank"): ProviderOption[] {
   return providers.value?.[kind] ?? [];
 }
@@ -101,8 +94,7 @@ function currentOption(kind: "llm" | "embed" | "rerank", value: string): Provide
 
 /** 切换 provider 时把模型名与 base_url 换成该 provider 的默认值，避免内部不一致。 */
 function onProviderChange(kind: "llm" | "embed" | "rerank"): void {
-  const value =
-    kind === "llm" ? draft.llmProvider : kind === "embed" ? draft.embedProvider : draft.rerankProvider;
+  const value = providerOf(kind);
   const option = currentOption(kind, value);
   if (!option) {
     return;
@@ -138,16 +130,10 @@ function buildPayload(): ModelConfigUpdate {
 
   if (draft.embedProvider !== current.embed_provider) payload.embed_provider = draft.embedProvider;
   if (draft.embedModel !== current.embed_model) payload.embed_model = draft.embedModel;
-  if (draft.embedModelPath !== (current.embed_model_path ?? "")) {
-    payload.embed_model_path = draft.embedModelPath || null;
-  }
-  if (draft.embedDimension !== current.embed_dimension) payload.embed_dimension = draft.embedDimension;
+  // 不提交 embed_dimension：向量维度由后端按模型实测值维护，见 types/config.ts 的说明。
 
   if (draft.rerankProvider !== current.rerank_provider) payload.rerank_provider = draft.rerankProvider;
   if (draft.rerankModel !== current.rerank_model) payload.rerank_model = draft.rerankModel;
-  if (draft.rerankModelPath !== (current.rerank_model_path ?? "")) {
-    payload.rerank_model_path = draft.rerankModelPath || null;
-  }
 
   if (clearingKey.llm) {
     payload.llm_api_key = "";
@@ -173,7 +159,6 @@ const hasChanges = computed(() => Object.keys(buildPayload()).length > 0);
 async function handleSave(): Promise<void> {
   formError.value = null;
   successMessage.value = null;
-  testResult.value = null;
   try {
     const result = await configStore.save(buildPayload());
     syncDraft();
@@ -183,43 +168,15 @@ async function handleSave(): Promise<void> {
   }
 }
 
-async function handleTest(): Promise<void> {
-  formError.value = null;
-  successMessage.value = null;
-  testResult.value = null;
-
-  if (clearingKey.llm) {
-    testResult.value = { success: false, message: "待清除的 Key 无法用于测试，请先填写新 Key" };
-    return;
-  }
-  // 测试用的是输入框里的值；若用户没有重新输入，则提示先填写。
-  // 不在这里回传已保存的 Key：那会让接口变成一个「用服务端密钥发请求」的通用代理。
-  const apiKey = draft.llmApiKey.trim();
-  if (!apiKey) {
-    testResult.value = {
-      success: false,
-      message: config.value?.llm_api_key_masked
-        ? "请点「替换」并填入 API Key 后再测试（出于安全考虑不会用已保存的 Key 发起测试）"
-        : "请先填写 API Key",
-    };
-    return;
-  }
-
-  testing.value = true;
-  try {
-    const result = await configStore.testConnection({
-      kind: "llm",
-      provider: draft.llmProvider,
-      api_key: apiKey,
-      base_url: draft.llmBaseUrl,
-      model: draft.llmModel,
-    });
-    testResult.value = { success: result.success, message: result.message };
-  } catch {
-    testResult.value = { success: false, message: configStore.errorMessage ?? "测试失败" };
-  } finally {
-    testing.value = false;
-  }
+/**
+ * 某类别是否已保存过 Key。
+ *
+ * 直接由后端返回的 `*_api_key_masked` 推导，而不是另存一份本地布尔：
+ * 后者会在「保存成功但本地状态没同步」时与真实情况不一致（例如用户在
+ * 另一个标签页改了配置），而这种不一致的表现正是"以为能测、点下去却报未保存"。
+ */
+function hasSavedKey(kind: "llm" | "embed" | "rerank"): boolean {
+  return Boolean(maskedOf(kind));
 }
 
 function startReplace(which: "llm" | "embed" | "rerank"): void {
@@ -255,11 +212,10 @@ function maskedOf(kind: "llm" | "embed" | "rerank"): string | null {
   return current.rerank_api_key_masked;
 }
 
-/** 本地 provider 不需要远程 Key。 */
-function needsRemoteKey(kind: "llm" | "embed" | "rerank"): boolean {
-  if (kind === "llm") return true;
-  const provider = kind === "embed" ? draft.embedProvider : draft.rerankProvider;
-  return provider === "qwen";
+/** 某类别当前选中的 provider 取值。 */
+function providerOf(kind: "llm" | "embed" | "rerank"): string {
+  if (kind === "llm") return draft.llmProvider;
+  return kind === "embed" ? draft.embedProvider : draft.rerankProvider;
 }
 </script>
 
@@ -278,11 +234,16 @@ function needsRemoteKey(kind: "llm" | "embed" | "rerank"): boolean {
         <div class="grid">
           <label class="field">
             <span class="field__label">Provider</span>
-            <select v-model="draft.llmProvider" class="field__control" @change="onProviderChange('llm')">
-              <option v-for="option in optionsFor('llm')" :key="option.value" :value="option.value">
-                {{ option.label }}
-              </option>
-            </select>
+            <span class="select">
+              <select v-model="draft.llmProvider" class="field__control" @change="onProviderChange('llm')">
+                <option v-for="option in optionsFor('llm')" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
+              <svg class="select__chevron" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 9.5l6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </span>
           </label>
 
           <label class="field">
@@ -305,7 +266,12 @@ function needsRemoteKey(kind: "llm" | "embed" | "rerank"): boolean {
 
           <label class="field field--wide">
             <span class="field__label">Base URL</span>
-            <input v-model="draft.llmBaseUrl" class="field__control" type="text" placeholder="留空则使用官方地址" />
+            <input
+              v-model="draft.llmBaseUrl"
+              class="field__control"
+              type="text"
+              placeholder="留空则使用官方地址"
+            />
           </label>
 
           <label class="field">
@@ -334,6 +300,7 @@ function needsRemoteKey(kind: "llm" | "embed" | "rerank"): boolean {
           </label>
         </div>
 
+        <!-- 三类 provider 都是远程服务，都需要 API Key，因此这张表单只有一种形态 -->
         <div class="key-row">
           <span class="field__label">API Key</span>
 
@@ -365,18 +332,16 @@ function needsRemoteKey(kind: "llm" | "embed" | "rerank"): boolean {
           </template>
         </div>
 
-        <div class="section__foot">
-          <button class="btn btn--ghost" type="button" :disabled="testing" @click="handleTest">
-            {{ testing ? "测试中…" : "测试连接" }}
-          </button>
-          <p
-            v-if="testResult"
-            class="test-result"
-            :class="testResult.success ? 'test-result--ok' : 'test-result--fail'"
-          >
-            {{ testResult.message }}
-          </p>
-        </div>
+        <!-- 测试连接：三类模型共用同一个组件，交互与视觉完全一致 -->
+        <TestConnectionButton
+          test-type="llm"
+          :provider="draft.llmProvider"
+          :model="draft.llmModel"
+          :base-url="draft.llmBaseUrl"
+          :api-key="replacingKey.llm ? draft.llmApiKey : ''"
+          :has-saved-key="hasSavedKey('llm')"
+          :key-cleared="clearingKey.llm"
+        />
       </section>
 
       <!-- ============ Embedding ============ -->
@@ -389,11 +354,16 @@ function needsRemoteKey(kind: "llm" | "embed" | "rerank"): boolean {
         <div class="grid">
           <label class="field">
             <span class="field__label">Provider</span>
-            <select v-model="draft.embedProvider" class="field__control" @change="onProviderChange('embed')">
-              <option v-for="option in optionsFor('embed')" :key="option.value" :value="option.value">
-                {{ option.label }}
-              </option>
-            </select>
+            <span class="select">
+              <select v-model="draft.embedProvider" class="field__control" @change="onProviderChange('embed')">
+                <option v-for="option in optionsFor('embed')" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
+              <svg class="select__chevron" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 9.5l6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </span>
           </label>
 
           <label class="field">
@@ -412,21 +382,9 @@ function needsRemoteKey(kind: "llm" | "embed" | "rerank"): boolean {
               />
             </datalist>
           </label>
-
-          <label class="field">
-            <span class="field__label">向量维度</span>
-            <input v-model.number="draft.embedDimension" class="field__control" type="number" min="1" max="8192" />
-            <span class="field__hint">必须与模型实际输出一致，否则写入向量库会失败</span>
-          </label>
-
-          <label v-if="draft.embedProvider === 'local'" class="field field--wide">
-            <span class="field__label">本地模型路径</span>
-            <input v-model="draft.embedModelPath" class="field__control" type="text" />
-            <span class="field__hint">留空时使用后端环境变量 LOCAL_BGE_M3_PATH 指定的部署默认路径</span>
-          </label>
         </div>
 
-        <div v-if="needsRemoteKey('embed')" class="key-row">
+        <div class="key-row">
           <span class="field__label">API Key</span>
           <template v-if="clearingKey.embed">
             <span class="key-pending">已标记为清除，保存后生效</span>
@@ -452,7 +410,15 @@ function needsRemoteKey(kind: "llm" | "embed" | "rerank"): boolean {
             <button class="link" type="button" @click="startReplace('embed')">填写</button>
           </template>
         </div>
-        <p v-else class="section__note">本地模型无需 API Key。</p>
+
+        <TestConnectionButton
+          test-type="embed"
+          :provider="draft.embedProvider"
+          :model="draft.embedModel"
+          :api-key="replacingKey.embed ? draft.embedApiKey : ''"
+          :has-saved-key="hasSavedKey('embed')"
+          :key-cleared="clearingKey.embed"
+        />
       </section>
 
       <!-- ============ Reranker ============ -->
@@ -465,11 +431,16 @@ function needsRemoteKey(kind: "llm" | "embed" | "rerank"): boolean {
         <div class="grid">
           <label class="field">
             <span class="field__label">Provider</span>
-            <select v-model="draft.rerankProvider" class="field__control" @change="onProviderChange('rerank')">
-              <option v-for="option in optionsFor('rerank')" :key="option.value" :value="option.value">
-                {{ option.label }}
-              </option>
-            </select>
+            <span class="select">
+              <select v-model="draft.rerankProvider" class="field__control" @change="onProviderChange('rerank')">
+                <option v-for="option in optionsFor('rerank')" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
+              <svg class="select__chevron" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M6 9.5l6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            </span>
           </label>
 
           <label class="field">
@@ -488,15 +459,9 @@ function needsRemoteKey(kind: "llm" | "embed" | "rerank"): boolean {
               />
             </datalist>
           </label>
-
-          <label v-if="draft.rerankProvider === 'local'" class="field field--wide">
-            <span class="field__label">本地模型路径</span>
-            <input v-model="draft.rerankModelPath" class="field__control" type="text" />
-            <span class="field__hint">留空时使用后端环境变量 LOCAL_BGE_RERANKER_PATH 指定的部署默认路径</span>
-          </label>
         </div>
 
-        <div v-if="needsRemoteKey('rerank')" class="key-row">
+        <div class="key-row">
           <span class="field__label">API Key</span>
           <template v-if="clearingKey.rerank">
             <span class="key-pending">已标记为清除，保存后生效</span>
@@ -522,7 +487,15 @@ function needsRemoteKey(kind: "llm" | "embed" | "rerank"): boolean {
             <button class="link" type="button" @click="startReplace('rerank')">填写</button>
           </template>
         </div>
-        <p v-else class="section__note">本地模型无需 API Key。</p>
+
+        <TestConnectionButton
+          test-type="rerank"
+          :provider="draft.rerankProvider"
+          :model="draft.rerankModel"
+          :api-key="replacingKey.rerank ? draft.rerankApiKey : ''"
+          :has-saved-key="hasSavedKey('rerank')"
+          :key-cleared="clearingKey.rerank"
+        />
       </section>
 
       <!-- ============ 操作区 ============ -->
@@ -575,22 +548,6 @@ function needsRemoteKey(kind: "llm" | "embed" | "rerank"): boolean {
   color: var(--kr-text-secondary);
 }
 
-.section__note {
-  margin-top: var(--kr-space-3);
-  font-size: 12.5px;
-  color: var(--kr-text-muted);
-}
-
-.section__foot {
-  display: flex;
-  align-items: center;
-  gap: var(--kr-space-3);
-  margin-top: var(--kr-space-4);
-  padding-top: var(--kr-space-4);
-  border-top: 1px solid var(--kr-border);
-  flex-wrap: wrap;
-}
-
 /* --- 字段栅格：窄屏自动降为单列，避免文本溢出 --- */
 .grid {
   display: grid;
@@ -619,7 +576,8 @@ function needsRemoteKey(kind: "llm" | "embed" | "rerank"): boolean {
   font: inherit;
   width: 100%;
   padding: 8px 12px;
-  border-radius: var(--kr-radius);
+  /* 输入框圆角取全局 token（10px），与弹窗里的输入框、历史页搜索框一致 */
+  border-radius: var(--kr-radius-input);
   border: 1px solid var(--kr-border-strong);
   background: var(--kr-panel-solid);
   color: var(--kr-text);
@@ -628,7 +586,7 @@ function needsRemoteKey(kind: "llm" | "embed" | "rerank"): boolean {
     box-shadow var(--kr-transition);
 }
 
-.field__control:hover {
+.field__control:hover:not(:focus) {
   border-color: var(--kr-input-border);
 }
 
@@ -636,6 +594,38 @@ function needsRemoteKey(kind: "llm" | "embed" | "rerank"): boolean {
   outline: none;
   border-color: var(--kr-primary);
   box-shadow: 0 0 0 3px var(--kr-primary-soft);
+}
+
+/* --- 下拉框 ---
+   原生 select 的问题是那个由操作系统绘制的箭头：形状、颜色、与边框的距离都不受控，
+   深浅主题下还会各自变成另一种灰。这里关掉原生外观、自己画一个线性箭头，
+   让它与旁边的输入框长得一样（同一圆角、同一边框、同一高度）。
+   注意：**展开后的选项列表仍由操作系统绘制、无法用 CSS 定制**，
+   要改那一部分只能换成自定义 listbox 组件（本项目的语言是原生控件 + token，暂不引入）。 */
+.select {
+  position: relative;
+  display: block;
+}
+
+.select select {
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  /* 给右侧箭头留位，否则长标签会压到箭头下面 */
+  padding-right: 32px;
+}
+
+.select__chevron {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  width: 15px;
+  height: 15px;
+  transform: translateY(-50%);
+  /* 用 currentColor 跟随主题，所以不必为深色单独准备一份图标资源 */
+  color: var(--kr-text-muted);
+  /* 关键：箭头不能吃掉点击，否则点在箭头区域时下拉框不展开 */
+  pointer-events: none;
 }
 
 .field__control--key {
@@ -790,18 +780,6 @@ function needsRemoteKey(kind: "llm" | "embed" | "rerank"): boolean {
 .alert--warning {
   color: var(--kr-warning);
   background: var(--kr-warning-soft);
-}
-
-.test-result {
-  font-size: 12.5px;
-}
-
-.test-result--ok {
-  color: var(--kr-success);
-}
-
-.test-result--fail {
-  color: var(--kr-danger);
 }
 
 .state {

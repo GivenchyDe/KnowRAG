@@ -10,19 +10,26 @@
 两种 token 的职责区分：
 - access token：短期（默认 30 分钟），随每个请求发送，用于鉴权；
 - refresh token：长期（默认 7 天），**只能**用于换取新的 access token，不能用于访问业务接口。
+
+有效期不只看"类型时长"：所有 token 还要受 `TOKEN_MAX_AGE_DAYS` 上限与
+「每月固定日强制过期」两条约束，实际取最早的那个（见 `token_lifetime.py`）。
 """
 
 from __future__ import annotations
 
 import secrets
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
 import jwt
 
 from app.core.config import get_settings
+from app.core.logging import get_logger
 from app.db.base import utc_now
+from app.security.token_lifetime import compute_token_expiry
+
+logger = get_logger(__name__)
 
 # 写入 payload 的 "typ" 声明，用于防止把 refresh token 当作 access token 使用。
 _JWT_ALGORITHM = "HS256"
@@ -43,16 +50,38 @@ class TokenExpiredError(TokenError):
     """token 已过期。单独建模是为了让调用方可以返回不同的错误提示。"""
 
 
+def _resolve_expiry(issued_at: datetime, type_lifetime: timedelta) -> tuple[datetime, str]:
+    """把「类型有效期」「全局最长有效天数」「每月固定日过期」三条约束折算成一个 exp。
+
+    折算顺序：先取类型有效期与全局上限中较小的作为 `max_age`，再交给
+    `compute_token_expiry` 与月度边界取较早者。这样 access token 平时就是 30 分钟，
+    而 refresh token 在月末会被压到下个月 1 号 00:00:00（业务要求的"强制重新登录"）。
+    """
+    settings = get_settings()
+    global_cap = timedelta(days=settings.token_max_age_days)
+    return compute_token_expiry(
+        issued_at,
+        max_age=min(type_lifetime, global_cap),
+        expire_day=settings.token_monthly_expire_day,
+        tz_name=settings.token_timezone,
+    )
+
+
 def _create_token(user_id: int, token_type: TokenType, expires_delta: timedelta) -> str:
     """签发一个 token。"""
     settings = get_settings()
-    issued_at = utc_now()
+    # 用项目统一的时间来源（UTC），并补上 tzinfo：月度边界要换算到 Asia/Shanghai，
+    # 没有时区信息的 naive 时间无法参与换算。
+    issued_at = utc_now().replace(tzinfo=UTC)
+
+    expires_at, bound_by = _resolve_expiry(issued_at, expires_delta)
+
     payload: dict[str, Any] = {
         # PyJWT 要求 sub 为字符串，这里显式转换，避免后续版本严格校验时报错。
         "sub": str(user_id),
         "typ": token_type.value,
         "iat": issued_at,
-        "exp": issued_at + expires_delta,
+        "exp": expires_at,
         # jti 让每个 token 唯一。
         #
         # 为什么必须有它：JWT 的 iat / exp 会被编码为**秒级**时间戳，
@@ -65,11 +94,21 @@ def _create_token(user_id: int, token_type: TokenType, expires_delta: timedelta)
         #    旧凭据并未失效。
         "jti": secrets.token_urlsafe(12),
     }
+
+    # 只记签发结果与**哪条规则生效**，不记 token 本身（payload 可被任何人解开，
+    # 而日志的读者范围远大于 token 的持有者）。过期时间异常时这行日志能直接给出答案。
+    logger.info(
+        "token 已签发 user_id=%s typ=%s exp=%s 约束=%s",
+        user_id,
+        token_type.value,
+        expires_at.isoformat(),
+        bound_by,
+    )
     return jwt.encode(payload, settings.jwt_secret, algorithm=_JWT_ALGORITHM)
 
 
 def create_access_token(user_id: int) -> str:
-    """签发 access token。"""
+    """签发 access token（默认 30 分钟，且不超过全局上限与月度边界）。"""
     settings = get_settings()
     return _create_token(
         user_id, TokenType.ACCESS, timedelta(minutes=settings.jwt_expire_minutes)
@@ -77,7 +116,11 @@ def create_access_token(user_id: int) -> str:
 
 
 def create_refresh_token(user_id: int) -> str:
-    """签发 refresh token。"""
+    """签发 refresh token（默认 7 天，但**不得超过下个月 1 号 00:00:00**）。
+
+    这就是业务要求的「每月 1 号强制重新登录」：月末签发的 refresh token
+    会被压到月初边界，跨过该时刻后刷新必然失败，前端会跳回登录页。
+    """
     settings = get_settings()
     return _create_token(
         user_id, TokenType.REFRESH, timedelta(days=settings.jwt_refresh_expire_days)

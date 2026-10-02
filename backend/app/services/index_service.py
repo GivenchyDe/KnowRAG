@@ -8,12 +8,14 @@
    避免在旧集合上原地清空——那样一旦构建失败，用户连旧的可用索引都没了。
 2. 索引记录里保存构建它时的 Embedding 配置（provider / model / dimension）与切块参数。
    判断索引是否仍然可用时，把这套参数与**当前配置**逐项比较，
-   逐项比较而不是只看 provider 名：换本地模型目录同样会改变向量空间。
+   逐项比较而不是只看 provider 名：同名 provider 换模型同样会改变向量空间。
 3. 由于模型配置在 Phase 2 被设计为**全局一份**，
    Embedding 配置一旦变更，所有用户的索引都会失效（不是只有改配置的人）。
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -35,26 +37,19 @@ def collection_name_for(user_id: int, version: int) -> str:
 
 
 def build_signature(config: ModelConfig) -> str:
-    """构造「会影响向量空间」的配置指纹。
+    """构造「会影响向量空间」的配置指纹：`provider|model|dimension`。
 
-    包含本地模型路径：从 bge-m3 换成 bge-large-zh 时 provider 仍是 local、
-    模型名可能也被改写为自定义名，只看 provider/model 会漏判，
-    导致旧索引被误判为可用，静默返回与新模型不匹配的检索结果。
+    三个分量缺一不可：provider 决定调哪家服务、model 决定用哪个模型、
+    dimension 是模型的实测输出维度。任一变化都意味着新查询向量可能与库里的向量
+    不在同一语义空间，旧索引必须重建。
     """
-    settings = get_settings()
-    # local 模式下未显式配置路径时，用环境变量里的部署默认值兜底，
-    # 保证「同一份配置」始终得出同一个指纹。
-    if config.embed_provider == "local":
-        model_path = (config.embed_model_path or settings.local_bge_m3_path).strip()
-    else:
-        model_path = ""
-    parts = [
-        config.embed_provider,
-        config.embed_model,
-        str(config.embed_dimension),
-        model_path,
-    ]
-    return "|".join(parts)
+    return "|".join(
+        [
+            config.embed_provider,
+            config.embed_model,
+            str(config.embed_dimension),
+        ]
+    )
 
 
 def signature_changed(index: KnowledgeBaseIndex, config: ModelConfig) -> bool:
@@ -161,19 +156,83 @@ def mark_failed(db: Session, index: KnowledgeBaseIndex) -> None:
     db.commit()
 
 
-def mark_all_stale(db: Session) -> int:
+def mark_all_stale(db: Session, *, exclude_id: int | None = None) -> int:
     """把所有 ready 的索引标记为 stale，返回受影响条数。
 
     为什么是「所有」而不是「某个用户」：Embedding 配置是全局的，
     配置一变，所有用户的向量空间都失效。若只标记当前用户，
     其他用户会继续用与新配置不匹配的旧索引检索，静默返回错误结果。
+
+    `exclude_id` 供维度校正这类"改的是配置、但当前这条索引正好是当事索引"的场景使用：
+    那条记录要么是 ready 且正被复用（实际向量与模型一致，不该被判过期），
+    要么是 building（本来就不是 ready）。不排除的话，正在摄取的那条会被顺手标成 stale，
+    随后又被 `mark_ready` 改回来，状态来回跳只会让日志和排查变复杂。
     """
-    indexes = db.scalars(
-        select(KnowledgeBaseIndex).where(KnowledgeBaseIndex.status == IndexStatus.READY)
-    ).all()
+    conditions = [KnowledgeBaseIndex.status == IndexStatus.READY]
+    if exclude_id is not None:
+        conditions.append(KnowledgeBaseIndex.id != exclude_id)
+    indexes = db.scalars(select(KnowledgeBaseIndex).where(*conditions)).all()
     for index in indexes:
         index.status = IndexStatus.STALE
     if indexes:
         db.commit()
         logger.warning("Embedding 配置变更，已将 %d 个索引标记为 stale", len(indexes))
     return len(indexes)
+
+
+@dataclass(frozen=True)
+class EmbeddingDimensionChange:
+    """一次维度校正的结果，供调用方决定要不要提示用户、怎么提示。"""
+
+    changed: bool
+    previous: int
+    current: int
+    stale_indexes: int = 0
+
+
+def sync_embedding_dimension(
+    db: Session,
+    config: ModelConfig,
+    *,
+    dimension: int,
+    index: KnowledgeBaseIndex | None = None,
+) -> EmbeddingDimensionChange:
+    """把**实测**到的向量维度写回配置，必要时同步当事索引记录并标记旧索引过期。
+
+    为什么维度不再是用户填写的字段：它是模型的属性（`text-embedding-v4` 恒为 1024、
+    `text-embedding-v4` 恒为 1024…）。让用户手填只会制造两种失败：填错时写向量库
+    直接失败；换模型后忘记改，则库里记的维度与实际向量不符。因此维度改为**观测值**——
+    谁真正调用了模型（连接测试、文档摄取），谁就把实测结果写回来。
+
+    为什么配置一改就要把已 ready 的索引标 stale：维度是索引指纹
+    （`build_signature`）的一部分，指纹一变，旧索引就无法证明与当前模型一致
+    （也可能确实换了模型），按本项目既有约定必须重建。这里显式标记，
+    是为了和 `config_service.update_config` 走同一条约定——
+    否则"配置变了、索引状态却还显示 ready"只会在比较指纹时才被发现。
+
+    函数内部会提交：全局配置的改动应当立即落库，调用方不必再 commit。
+    """
+    previous = config.embed_dimension
+    if previous == dimension:
+        return EmbeddingDimensionChange(changed=False, previous=previous, current=dimension)
+
+    config.embed_dimension = dimension
+    if index is not None:
+        # 当事索引记录要一起改：它要么正被本次摄取复用，要么是刚建的 building 记录，
+        # 两者都还没有"用旧维度写进去的向量"，校正后仍然自洽。
+        index.embedding_dimension = dimension
+        index.embedding_signature = build_signature(config)
+
+    stale_count = mark_all_stale(db, exclude_id=index.id if index is not None else None)
+    db.commit()
+    logger.warning(
+        "向量维度已按实测值校正 %s → %s（模型 %s/%s，%d 个已有索引需重建）",
+        previous,
+        dimension,
+        config.embed_provider,
+        config.embed_model,
+        stale_count,
+    )
+    return EmbeddingDimensionChange(
+        changed=True, previous=previous, current=dimension, stale_indexes=stale_count
+    )

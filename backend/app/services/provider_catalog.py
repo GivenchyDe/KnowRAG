@@ -4,6 +4,10 @@
 「模型供应商会更新模型名和推荐版本，前端 provider 列表由后端配置返回」，
 因此这里集中维护一份目录，由 `GET /api/config/providers` 暴露给前端，
 将来新增 provider 或调整推荐模型只改这一个文件。
+
+**本系统只支持远程 Provider**：本地模型方案已于 2026-10-02 整体移除（本地权重加载、
+进程级缓存、`local` 取值与环境变量路径一并删除），因此每个 provider 都需要 API Key，
+这里也不再需要"该 provider 是否需要 Key"这类判断。
 """
 
 from __future__ import annotations
@@ -13,23 +17,21 @@ from typing import TypedDict
 
 
 class LLMProvider(StrEnum):
-    """LLM provider。"""
+    """LLM provider。两者都是远程服务，通过官方 SDK 或 OpenAI 兼容接口调用。"""
 
     DEEPSEEK = "deepseek"
     QWEN = "qwen"
 
 
 class EmbedProvider(StrEnum):
-    """Embedding provider。`local` 表示加载本地模型，`qwen` 表示调用远程接口。"""
+    """Embedding provider（仅远程）。"""
 
-    LOCAL = "local"
     QWEN = "qwen"
 
 
 class RerankProvider(StrEnum):
-    """Reranker provider，取值含义同 EmbedProvider。"""
+    """Reranker provider（仅远程）。"""
 
-    LOCAL = "local"
     QWEN = "qwen"
 
 
@@ -43,7 +45,7 @@ class ProviderOption(TypedDict):
     suggested_models: list[str]
 
 
-# provider 默认值表。base_url 为 None 表示该 provider 不使用网络地址（本地模型）。
+# provider 默认值表。
 _PROVIDER_CATALOG: dict[str, list[ProviderOption]] = {
     "llm": [
         {
@@ -56,7 +58,7 @@ _PROVIDER_CATALOG: dict[str, list[ProviderOption]] = {
         },
         {
             "value": LLMProvider.QWEN.value,
-            "label": "通义千问（Qwen）",
+            "label": "Qwen",
             "default_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
             "default_model": "qwen-plus",
             "suggested_models": ["qwen-plus", "qwen-turbo", "qwen-max", "qwen-long"],
@@ -64,15 +66,8 @@ _PROVIDER_CATALOG: dict[str, list[ProviderOption]] = {
     ],
     "embed": [
         {
-            "value": EmbedProvider.LOCAL.value,
-            "label": "本地模型",
-            "default_base_url": None,
-            "default_model": "BAAI/bge-m3",
-            "suggested_models": ["BAAI/bge-m3", "BAAI/bge-large-zh-v1.5"],
-        },
-        {
             "value": EmbedProvider.QWEN.value,
-            "label": "通义千问（远程）",
+            "label": "Qwen",
             "default_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
             "default_model": "text-embedding-v4",
             "suggested_models": ["text-embedding-v4", "text-embedding-v3"],
@@ -80,15 +75,8 @@ _PROVIDER_CATALOG: dict[str, list[ProviderOption]] = {
     ],
     "rerank": [
         {
-            "value": RerankProvider.LOCAL.value,
-            "label": "本地模型",
-            "default_base_url": None,
-            "default_model": "bge-reranker-large",
-            "suggested_models": ["bge-reranker-large", "bge-reranker-v2-m3"],
-        },
-        {
             "value": RerankProvider.QWEN.value,
-            "label": "通义千问（远程）",
+            "label": "Qwen",
             "default_base_url": "https://dashscope.aliyuncs.com/api/v1",
             "default_model": "gte-rerank-v2",
             "suggested_models": ["gte-rerank-v2"],

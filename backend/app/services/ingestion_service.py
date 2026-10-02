@@ -257,15 +257,13 @@ def _ingest(db: Session, task: IngestionTask, document: Document) -> None:
             f"向量数量与切片数量不一致（{len(vectors)} != {len(chunks)}）",
         )
 
-    # 维度校验：写错维度的向量会在 Chroma 里报错，但错误信息晦涩，
-    # 这里提前给出可读提示（配置里的 embed_dimension 必须与模型实际输出一致）。
+    # 维度以**实测**为准：配置里的 `embed_dimension` 只是上一次观测的缓存，
+    # 用户已经无法填写它（模型设置页的输入框已删除）。因此这里不再因为不一致而报错——
+    # 用户没有做错任何事，而"请到模型设置页修正"这句话也已经无处可去。
+    # 校正会同时更新配置与当事索引记录，并把其他已有索引标记为过期（详见函数注释）。
     actual_dimension = len(vectors[0])
     if actual_dimension != index.embedding_dimension:
-        raise AppError(
-            ErrorCode.MODEL_CONFIG_INVALID,
-            f"向量维度与配置不一致：模型实际输出 {actual_dimension} 维，"
-            f"而配置的向量维度为 {index.embedding_dimension}。请到模型设置页修正后重建索引。",
-        )
+        index_service.sync_embedding_dimension(db, config, dimension=actual_dimension, index=index)
 
     # 5) 写入向量库与文档存储
     _update(db, task, status=IngestionStatus.RUNNING, progress=_PROGRESS_STORING)
@@ -298,14 +296,9 @@ def _ingest(db: Session, task: IngestionTask, document: Document) -> None:
 def _build_embedding(config: ModelConfig):
     """按当前配置构造 Embedding 实例。
 
-    远程 provider 每次调用都新建（轻量、无状态）；
-    本地 provider 走进程级缓存（模型加载昂贵，必须共享）。
+    每次调用都新建：远程 provider 无状态、构造轻量，不做进程级缓存——
+    缓存会让"改了配置却继续用旧实例"这类问题变得隐蔽。
     """
-    if config.embed_provider == "local":
-        from app.services.model_loader import get_local_embedding
-
-        return get_local_embedding()
-
     if config.embed_provider == "qwen":
         from llama_index.embeddings.dashscope import DashScopeEmbedding
 

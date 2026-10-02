@@ -3,6 +3,8 @@ import type {
   ConnectionTestRequest,
   ConnectionTestResult,
   ModelConfig,
+  ModelConfigTestEmbeddingRequest,
+  ModelConfigTestRerankerRequest,
   ModelConfigUpdate,
   ModelConfigUpdateResult,
   ProvidersResponse,
@@ -36,14 +38,42 @@ export async function fetchProviders(): Promise<ProvidersResponse> {
   return request<ProvidersResponse>("/api/config/providers", { absolutePath: true });
 }
 
-export async function testConnection(
-  payload: ConnectionTestRequest,
-): Promise<ConnectionTestResult> {
+/**
+ * 连接测试。
+ *
+ * 三类模型共用**后端同一个接口**（`POST /api/config/model/test`，用 `kind` 区分）。
+ * 这里仍然提供三个具名函数：调用处读起来就是"在测向量模型"，
+ * 而且各自的参数类型把 `kind` 收窄了，写错类别在编译期就会被拦下。
+ *
+ * 超时给到 60 秒：连接测试要真实调用一次远程模型（Embedding 会算一次向量、
+ * Reranker 会跑一次重排），供应商侧偶发的排队与网络抖动都可能超过默认的 15 秒；
+ * 而"服务正常但响应慢"被误判为不可达，会让用户去改本来正确的配置。
+ */
+const TEST_TIMEOUT_MS = 60_000;
+
+function requestTest(payload: ConnectionTestRequest): Promise<ConnectionTestResult> {
   return request<ConnectionTestResult>("/api/config/model/test", {
     method: "POST",
     json: payload,
     absolutePath: true,
-    // 连接测试要等远端模型服务响应，默认 15 秒超时偏紧，这里放宽。
-    timeoutMs: 20_000,
+    timeoutMs: TEST_TIMEOUT_MS,
   });
+}
+
+export async function testLlmConnection(
+  payload: Omit<ConnectionTestRequest, "kind">,
+): Promise<ConnectionTestResult> {
+  return requestTest({ ...payload, kind: "llm" });
+}
+
+export async function testEmbeddingConnection(
+  payload: Omit<ModelConfigTestEmbeddingRequest, "kind">,
+): Promise<ConnectionTestResult> {
+  return requestTest({ ...payload, kind: "embed" });
+}
+
+export async function testRerankerConnection(
+  payload: Omit<ModelConfigTestRerankerRequest, "kind">,
+): Promise<ConnectionTestResult> {
+  return requestTest({ ...payload, kind: "rerank" });
 }

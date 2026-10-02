@@ -158,7 +158,7 @@ def reset_client() -> None:
 def get_or_create_collection(name: str) -> Any:
     """获取或创建集合。
 
-    距离度量固定为 cosine：bge-m3 输出已归一化（模型自带 Normalize 模块），
+    距离度量固定为 cosine：文本 Embedding 的输出通常是已归一化的单位向量，
     余弦距离在这种情况下语义最稳定，且与维度无关。
     """
     client = get_chroma_client()

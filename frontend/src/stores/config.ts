@@ -81,8 +81,21 @@ export const useConfigStore = defineStore("config", () => {
     }
   }
 
+  /**
+   * 测试模型连接（三类共用，按 `kind` 分发到对应的 api 函数）。
+   *
+   * 不把结果存进 store：测试是一次性动作，成功/失败的价值只在于当下给用户反馈；
+   * 存起来反而会在用户改了配置之后显示过期的结论。同理，**任何 Key 都不进 store**，
+   * 只在这一次请求里传一次。
+   */
   async function testConnection(payload: ConnectionTestRequest): Promise<ConnectionTestResult> {
-    return configApi.testConnection(payload);
+    if (payload.kind === "embed") {
+      return configApi.testEmbeddingConnection(payload);
+    }
+    if (payload.kind === "rerank") {
+      return configApi.testRerankerConnection(payload);
+    }
+    return configApi.testLlmConnection(payload);
   }
 
   function clearError(): void {

@@ -5,9 +5,8 @@
    立即用系统默认值创建，而不是返回空配置——否则前端的设置页会是空白，
    用户无从知道当前默认用的是什么模型。
 2. API Key 只以密文形态出现在数据库与本模块内部；对外一律经 `mask_api_key` 脱敏。
-3. 判断「Embedding 配置是否变化」时，同时比较 provider、model 与**本地模型路径**。
-   只比较 provider/model 是不够的：切换本地模型目录（例如从 bge-m3 换到
-   bge-large-zh）同样会改变向量空间，旧索引必须重建。
+3. 判断「Embedding 配置是否变化」时，比较 provider、model 与维度
+   （见 `_EMBEDDING_FIELDS`）：三者任一变化都会改变向量空间，旧索引必须重建。
 """
 
 from __future__ import annotations
@@ -24,11 +23,7 @@ from app.models.model_config import ModelConfig
 from app.models.user import User
 from app.schemas.config import ModelConfigUpdate
 from app.services.crypto_service import decrypt_api_key, encrypt_api_key, mask_api_key
-from app.services.provider_catalog import (
-    default_for,
-    get_catalog,
-    supported_values,
-)
+from app.services.provider_catalog import default_for, get_catalog, supported_values
 
 logger = get_logger(__name__)
 
@@ -38,7 +33,9 @@ logger = get_logger(__name__)
 _EMBEDDING_FIELDS: tuple[str, ...] = (
     "embed_provider",
     "embed_model",
-    "embed_model_path",
+    # `embed_dimension` 也在其中（它同样改变向量空间），但请求体里已经没有这个字段：
+    # 它由 `index_service.sync_embedding_dimension` 按模型实测值维护，那条路径自己负责
+    # 标记索引过期。留在这里是为了让"影响向量空间的字段"这份清单保持完整。
     "embed_dimension",
 )
 
@@ -76,20 +73,25 @@ def get_or_create_config(db: Session) -> ModelConfig:
     if config is not None:
         return config
 
-    # 默认值来自 provider 目录，保证「数据库默认值」与「前端看到的可选值」同源。
-    llm_default = default_for("llm", "deepseek")
-    embed_default = default_for("embed", "local")
-    rerank_default = default_for("rerank", "local")
+    # 默认值来自 provider 目录，保证「数据库默认值」与「前端看到的可选值」同源；
+    # 具体选哪个 provider 由环境变量决定（见 `_default_provider`）。
+    llm_provider = _default_provider("llm", settings_default="default_llm_provider")
+    embed_provider = _default_provider("embed", settings_default="default_embed_provider")
+    rerank_provider = _default_provider("rerank", settings_default="default_rerank_provider")
+
+    llm_default = default_for("llm", llm_provider)
+    embed_default = default_for("embed", embed_provider)
+    rerank_default = default_for("rerank", rerank_provider)
 
     config = ModelConfig(
         user_id=None,
-        llm_provider="deepseek",
+        llm_provider=llm_provider,
         llm_base_url=llm_default["default_base_url"] if llm_default else None,
         llm_model=llm_default["default_model"] if llm_default else "deepseek-chat",
-        embed_provider="local",
-        embed_model=embed_default["default_model"] if embed_default else "BAAI/bge-m3",
-        rerank_provider="local",
-        rerank_model=rerank_default["default_model"] if rerank_default else "bge-reranker-large",
+        embed_provider=embed_provider,
+        embed_model=embed_default["default_model"] if embed_default else "text-embedding-v4",
+        rerank_provider=rerank_provider,
+        rerank_model=rerank_default["default_model"] if rerank_default else "gte-rerank-v2",
     )
     db.add(config)
     db.commit()
@@ -98,18 +100,35 @@ def get_or_create_config(db: Session) -> ModelConfig:
     return config
 
 
-def _local_model_path_defaults() -> tuple[str, str]:
-    """本地模型路径的部署级默认值。
+def _default_provider(kind: str, *, settings_default: str) -> str:
+    """取该类别新建配置时使用的 provider。
 
-    路径属于部署环境信息，不适合固化进数据库默认值（换机器就失效），
-    因此未配置时从环境变量读取，由前端展示为当前生效值。
+    为什么要这个函数：默认值应当可运维调整（例如把默认 LLM 从 DeepSeek 换成 Qwen），
+    而不是把某个 provider 名写死在创建逻辑里。
+
+    环境变量取值不在目录里时**回退到目录第一项并告警**，而不是抛错：
+    一个拼错的变量不该让整个服务起不来。
     """
     settings = get_settings()
-    return settings.local_bge_m3_path, settings.local_bge_reranker_path
+    configured = str(getattr(settings, settings_default, "") or "").strip()
+    if configured and configured in supported_values(kind):
+        return configured
+
+    fallback = get_catalog()[kind][0]["value"]
+    if configured:
+        logger.warning(
+            "%s=%s 不是合法的 %s provider，已回退为 %s（可选值：%s）",
+            settings_default.upper(),
+            configured,
+            kind,
+            fallback,
+            "、".join(sorted(supported_values(kind))),
+        )
+    return fallback
 
 
 def build_config_response(config: ModelConfig) -> dict[str, object]:
-    """把 ORM 对象转换为响应字段，负责解密→脱敏与本地路径兜底。
+    """把 ORM 对象转换为响应字段，负责解密→脱敏。
 
     解密在这里发生而不是在 schema 层：schema 应保持纯数据转换，
     不应触碰密钥材料。
@@ -126,8 +145,6 @@ def build_config_response(config: ModelConfig) -> dict[str, object]:
             logger.warning("模型配置中的 API Key 无法解密，可能是 FERNET_KEY 已更换")
             return "****（解密失败，请重新填写）"
 
-    m3_default, reranker_default = _local_model_path_defaults()
-
     return {
         "llm_provider": config.llm_provider,
         "llm_api_key_masked": masked(config.llm_api_key_encrypted),
@@ -138,14 +155,107 @@ def build_config_response(config: ModelConfig) -> dict[str, object]:
         "embed_provider": config.embed_provider,
         "embed_api_key_masked": masked(config.embed_api_key_encrypted),
         "embed_model": config.embed_model,
-        "embed_model_path": config.embed_model_path or (m3_default or None),
         "embed_dimension": config.embed_dimension,
         "rerank_provider": config.rerank_provider,
         "rerank_api_key_masked": masked(config.rerank_api_key_encrypted),
         "rerank_model": config.rerank_model,
-        "rerank_model_path": config.rerank_model_path or (reranker_default or None),
         "updated_at": config.updated_at,
     }
+
+
+@dataclass(frozen=True)
+class SavedConnectionTarget:
+    """连接测试用的一组凭据（来自数据库里已保存的配置）。
+
+    `api_key` 是**解密后的明文**，只允许在内存中传给发起请求的那一处，
+    绝不写日志、绝不进响应体。要展示时一律用 `crypto_service.mask_api_key` 脱敏。
+    """
+
+    api_key: str
+    base_url: str | None
+    model: str
+    provider: str
+
+
+# 三个类别各自在配置表里的列名。集中成表，避免三处各写一遍字段名而漏掉某一类。
+_SAVED_KEY_COLUMN: dict[str, str] = {
+    "llm": "llm_api_key_encrypted",
+    "embed": "embed_api_key_encrypted",
+    "rerank": "rerank_api_key_encrypted",
+}
+_SAVED_PROVIDER_FIELD: dict[str, str] = {
+    "llm": "llm_provider",
+    "embed": "embed_provider",
+    "rerank": "rerank_provider",
+}
+_SAVED_MODEL_FIELD: dict[str, str] = {
+    "llm": "llm_model",
+    "embed": "embed_model",
+    "rerank": "rerank_model",
+}
+
+
+def load_saved_connection_target(db: Session, *, kind: str, provider: str) -> SavedConnectionTarget:
+    """读取"已保存的" provider 连接信息，供 `use_saved_key` 的连接测试使用。
+
+    **安全边界（这条比功能更重要）**：返回值里的地址与模型名一律取自数据库/目录，
+    **不接受调用方传入的地址**。原因是本项目只有一行全局配置，任何登录用户
+    （注册接口是公开的）都能调用测试接口；如果允许请求方指定 base_url，
+    就等于让服务器把**全局 API Key 发到任意地址**——那是一条直接的密钥外泄通道。
+    只信任服务端保存的值，就不存在这个问题：测试的始终是"已保存的那份配置"。
+
+    另外要求请求的 provider 与已保存的一致：不一致说明库里没有该 provider 的 Key，
+    此时报"尚未保存"比拿另一家的 Key 去测更诚实，也避免误报"Key 无效"。
+
+    关于"只能测自己的 Key"：`model_configs` 是**全局单行**配置（设计文档 4.2 节），
+    没有按用户分库的 Key，因此本函数不做 `user_id` 过滤——那样的过滤会让人误以为
+    存在用户级隔离而实际并不存在。真正的边界是"必须登录"+上一条"地址不由调用方决定"。
+
+    关于 base_url：只有 LLM 有 `llm_base_url` 列。
+    Embedding / Reranker 的端点由 SDK 或常量决定，因此对这两类返回 `None`——
+    而不是编一个"看起来能用"的地址出来。
+    """
+    if kind not in _SAVED_KEY_COLUMN:
+        raise AppError(ErrorCode.VALIDATION_ERROR, f"不支持的测试类别：{kind}")
+
+    config = get_or_create_config(db)
+
+    if getattr(config, _SAVED_PROVIDER_FIELD[kind]) != provider:
+        raise AppError(
+            ErrorCode.MODEL_CONFIG_INVALID,
+            "尚未保存该模型的 API Key，请先填写并保存",
+        )
+
+    ciphertext = getattr(config, _SAVED_KEY_COLUMN[kind])
+    option = default_for(kind, provider)
+    # 所有 provider 都是远程服务，库里没有 Key 就是"还没填"，直接拒绝测试。
+    if not ciphertext:
+        raise AppError(
+            ErrorCode.MODEL_CONFIG_INVALID,
+            "尚未保存该模型的 API Key，请先填写并保存",
+        )
+
+    model = (getattr(config, _SAVED_MODEL_FIELD[kind]) or "").strip() or (
+        option["default_model"] if option else ""
+    )
+    base_url: str | None = None
+    if kind == "llm":
+        base_url = (config.llm_base_url or "").strip() or (
+            option["default_base_url"] if option else None
+        )
+
+    api_key = decrypt_api_key(ciphertext)
+    # 只记脱敏后的形态；密钥的任何完整形态都不进日志（CODING_CONVENTIONS 第 8.2 节）。
+    logger.info(
+        "连接测试将使用已保存的凭据 kind=%s provider=%s key=%s",
+        kind,
+        provider,
+        mask_api_key(api_key),
+    )
+
+    return SavedConnectionTarget(
+        api_key=api_key, base_url=base_url, model=model, provider=provider
+    )
 
 
 def _validate_providers(payload: ModelConfigUpdate) -> None:
@@ -254,12 +364,8 @@ def update_config(
         from app.services import index_service
 
         stale_count = index_service.mark_all_stale(db)
-        # 同时清空本地模型缓存：换了模型却继续用旧实例，会产出与新索引版本不匹配的向量。
-        from app.services.model_loader import reset_model_cache
-
-        reset_model_cache()
         logger.warning(
-            "Embedding 配置变更 fields=%s，已标记 %d 个索引为 stale 并清空模型缓存",
+            "Embedding 配置变更 fields=%s，已标记 %d 个索引为 stale",
             embedding_changed_fields,
             stale_count,
         )

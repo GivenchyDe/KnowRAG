@@ -29,6 +29,7 @@ from app.models.model_config import ModelConfig
 from app.rag import prompts, retrieval
 from app.services import config_service, index_service
 from app.services.crypto_service import decrypt_api_key
+from app.services.provider_catalog import LLMProvider
 
 logger = get_logger(__name__)
 
@@ -267,12 +268,15 @@ def _build_llm(config: ModelConfig, *, model: str | None, temperature: float | N
     resolved_temperature = config.llm_temperature if temperature is None else temperature
     resolved_max_tokens = config.llm_max_tokens if max_tokens is None else max_tokens
 
-    if not config.llm_api_key_encrypted:
+    # 没有存 Key 时给空串，下面统一按"必须有 Key"校验。
+    api_key = decrypt_api_key(config.llm_api_key_encrypted) if config.llm_api_key_encrypted else ""
+
+    # 本系统只有远程 provider（本地模型方案已于 2026-10-02 移除），因此 Key 一律必填。
+    if not api_key:
         raise AppError(
             ErrorCode.MODEL_CONFIG_INVALID,
             "尚未配置 LLM API Key，请先到「模型设置」页填写",
         )
-    api_key = decrypt_api_key(config.llm_api_key_encrypted)
 
     if config.llm_provider == "deepseek":
         from llama_index.llms.deepseek import DeepSeek
