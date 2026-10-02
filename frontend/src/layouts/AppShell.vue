@@ -45,6 +45,12 @@ import AppSidebar from "@/components/AppSidebar.vue";
   height: 100dvh;
   /* 内容一律在内部滚动，shell 自身绝不出现滚动条 */
   overflow: hidden;
+  /* 全站卡片语言的"画框"：给页面留出 12px 外边距，侧边栏与主区之间也留 12px，
+     这样每一块结构面（侧边栏、顶栏、消息区、右侧面板）都是独立的圆角卡片，
+     彼此有均匀的间隙，而不是拼在一起再用分隔线切。
+     用 box-sizing: border-box（全局已设），所以 padding 不会把高度撑出视口。 */
+  padding: var(--kr-space-3);
+  gap: var(--kr-space-3);
 }
 
 .shell__main {
@@ -70,8 +76,11 @@ import AppSidebar from "@/components/AppSidebar.vue";
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  /* 始终预留滚动条槽位：否则内容由短变长时滚动条突然出现，
-     正文会被挤窄 6px 而横向跳动。滚动条本身是透明的，槽位看不出痕迹。 */
-  scrollbar-gutter: stable;
+  /* 这里**刻意不留**滚动条槽位（不用 scrollbar-gutter: stable）。
+     槽位会让这一侧的可用宽度少掉 6px，卡片化之后表现为"右边距 18px、左边距 12px"，
+     一眼就能看出偏了——而外层 .shell 的 12px 画框本该是四周等宽的。
+     动态增长的滚动容器（消息流 .stream、会话列表、右侧面板、输入框）各自保留了槽位，
+     那里才是"内容变多时突然出现滚动条导致文字横向跳动"的真正场景；
+     页面级只在首次加载后可能滚动一次，代价可以忽略。 */
 }
 </style>

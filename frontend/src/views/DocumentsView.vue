@@ -301,10 +301,8 @@ async function handleDelete(documentId: number): Promise<void> {
   justify-content: space-between;
   gap: var(--kr-space-4);
   padding: var(--kr-space-4) var(--kr-space-5);
-  border-bottom: 1px solid var(--kr-border);
-  background: var(--kr-panel);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  /* 页头不是"框框"：去掉通栏底色与分隔线，页面里带表面的容器一律是卡片，
+     避免同一屏出现"通栏条 + 圆角卡片"两套语言。 */
 }
 
 .page-head__title {

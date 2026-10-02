@@ -4,9 +4,12 @@ import { nextTick, onBeforeUnmount, ref, watch } from "vue";
 /**
  * 通用模态框。
  *
- * 项目没有引入 Element Plus 这类 UI 框架（依赖里只有 vue / pinia / vue-router /
- * markdown-it / dompurify），所以这里手写一个，颜色与圆角全部走 design tokens，
- * 与既有页面天然一致。
+ * **已引入 Element Plus（见 main.ts），但本组件仍保留手写实现**：`ElDialog` 的
+ * 遮罩、焦点与滚动锁行为与这里不同，替换它会波及所有已完成的弹窗（个人设置、
+ * 通用设置、模型配置、确认框），属于独立的一次迁移，不在当前改动范围内。
+ * 新写组件时优先直接用 EP 的 `ElDialog`，不要再新增手写弹窗。
+ *
+ * 颜色与圆角全部走 design tokens，与既有页面天然一致。
  *
  * 处理了模态框最容易漏掉的四件事：
  * 1. **锁定背景滚动** —— 否则滚轮会穿透到后面的页面；
@@ -138,11 +141,17 @@ onBeforeUnmount(() => {
 }
 
 .panel {
-  /* 卡片圆角按产品要求取 16px（设计规范给的区间是 12-18px） */
-  border-radius: 16px;
+  /* 卡片圆角 16px（全站卡片统一值） */
+  border-radius: var(--kr-radius-card);
   border: 1px solid var(--kr-border);
-  background: var(--kr-panel-solid);
-  box-shadow: var(--kr-shadow);
+  /* 浮层表面用 --kr-overlay-panel（96% 白）而不是页面卡片的 72%：
+     弹窗背后是整页内容，半透明到 72% 会透出底下的文字与卡片边缘，正文读起来发花。
+     配 12px 毛玻璃，既压得住背景又保留轻盈感。 */
+  background: var(--kr-overlay-panel);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  /* 浮层阴影比页面卡片更深一档（见 global.css 的 --kr-shadow-overlay） */
+  box-shadow: var(--kr-shadow-overlay);
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - 2 * var(--kr-space-4));

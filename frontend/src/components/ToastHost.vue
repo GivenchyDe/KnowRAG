@@ -30,6 +30,11 @@ const ui = useUiStore();
             <svg v-else-if="item.kind === 'error'" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4">
               <path d="M12 7v6M12 17h.01" stroke-linecap="round" />
             </svg>
+            <!-- 警告用三角形：与错误的圆形感叹号区分开，一眼能看出"没成功但多半是环境问题" -->
+            <svg v-else-if="item.kind === 'warning'" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 4.5 2.9 19.5h18.2L12 4.5z" stroke-linecap="round" stroke-linejoin="round" />
+              <path d="M12 10.2v3.6M12 17h.01" stroke-linecap="round" />
+            </svg>
             <svg v-else viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.4">
               <path d="M12 11v6M12 7h.01" stroke-linecap="round" />
             </svg>
@@ -67,9 +72,9 @@ const ui = useUiStore();
   gap: var(--kr-space-2);
   width: 100%;
   padding: 10px var(--kr-space-3) 10px var(--kr-space-4);
-  border-radius: var(--kr-radius);
+  border-radius: var(--kr-radius-card);
   border: 1px solid var(--kr-border);
-  /* 轻微玻璃拟态，与面板质感一致 */
+  /* 轻微玻璃拟态，与全站卡片质感一致 */
   background: var(--kr-panel);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -101,6 +106,11 @@ const ui = useUiStore();
 .toast--info .toast__mark {
   color: var(--kr-primary);
   background: var(--kr-primary-soft);
+}
+
+.toast--warning .toast__mark {
+  color: var(--kr-warning);
+  background: var(--kr-warning-soft);
 }
 
 .toast__text {

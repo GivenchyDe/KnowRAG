@@ -9,11 +9,20 @@ import { defineStore } from "pinia";
  * 调用点分散在各个组件中，用 prop/emit 串联会污染一大串组件签名。
  * 真正的渲染交给 `ToastHost` / `ConfirmDialog` 两个宿主组件，挂在 App 根部。
  *
- * 对应 Element Plus 的 `ElMessage` / `ElMessageBox`，但本项目没有引入 UI 框架
- * （见 BaseModal.vue 的说明），因此手写一套等价的。
+ * 对应 Element Plus 的 `ElMessage` / `ElMessageBox`。项目已引入 Element Plus
+ * （见 main.ts），但这两个手写实现**暂时保留**：调用点已遍布全站，迁移属于独立
+ * 改动。新代码若要弹提示，优先用这里的 `ui.toast()` / `ui.confirm()`，保持体验一致。
  */
 
-export type ToastKind = "success" | "error" | "info";
+/**
+ * Toast 类型。
+ *
+ * `warning` 与 `error` 的区别是"严重程度"：error 表示操作失败/出错（红色），
+ * warning 表示"这次没成功但原因通常是环境问题"（橙色，如连接测试失败、
+ * 本地服务没启动）。两者都在 `error` 之外单独成档，是为了让"配置写错了"
+ * 与"模型服务没起来"在视觉上就能区分。
+ */
+export type ToastKind = "success" | "error" | "info" | "warning";
 
 export interface ToastItem {
   id: number;

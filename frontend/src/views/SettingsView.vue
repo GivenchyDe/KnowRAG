@@ -35,11 +35,10 @@ import ModelConfigForm from "@/components/ModelConfigForm.vue";
 }
 
 .page-head {
+  /* 页头不是"框框"：全站统一卡片语言后，页面里所有带表面的容器都是卡片，
+     页头只保留标题与留白，不再是一层带底色的通栏条——否则一屏里会同时出现
+     "有底色的条"和"圆角卡片"两种东西。 */
   padding: var(--kr-space-5);
-  border-bottom: 1px solid var(--kr-border);
-  background: var(--kr-panel);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
 }
 
 .page-head__title {

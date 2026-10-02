@@ -157,10 +157,9 @@ function toggleKnowledge(): void {
      不加这行时它的 flex-shrink 默认为 1，消息很长时会被压扁。 */
   flex: none;
   padding: var(--kr-space-4) var(--kr-space-5) var(--kr-space-5);
-  border-top: 1px solid var(--kr-border);
-  background: var(--kr-panel);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  /* 这里**不再是**"通栏条"（原先有 border-top + --kr-panel 底 + 毛玻璃）：
+     全站统一卡片语言后，真正的框框是里面的 .composer__box，
+     外层只负责留白；两层都给表面色会变成"卡片套卡片"。 */
 }
 
 .composer__box {
@@ -169,9 +168,11 @@ function toggleKnowledge(): void {
   gap: var(--kr-space-3);
   width: 100%;
   padding: var(--kr-space-3);
-  border-radius: var(--kr-radius-lg);
+  border-radius: var(--kr-radius-card);
   border: 1px solid var(--kr-border-strong);
   background: var(--kr-panel-solid);
+  /* 与全站卡片一致的极轻投影，让输入框读起来也是一张卡片 */
+  box-shadow: var(--kr-shadow-sm);
   transition:
     border-color var(--kr-transition),
     box-shadow var(--kr-transition);

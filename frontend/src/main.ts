@@ -5,6 +5,15 @@ import { setUnauthorizedHandler } from "@/api/client";
 import App from "@/App.vue";
 import router from "@/router";
 import { useThemeStore } from "@/stores/theme";
+
+// Element Plus 样式：**按需引入**，只引 base（CSS 变量 + 过渡类）+ 当前真正用到的组件样式。
+// 不引 `element-plus/dist/index.css`：那是 353KB 的全量样式，而目前只用了 el-switch。
+// 新增 EP 组件时，在下面按同样方式补一行对应样式（如 el-dialog → theme-chalk/el-dialog.css）。
+//
+// 必须放在 global.css 之前：global.css 里有一段把 EP 的 --el-* 变量映射到本项目
+// --kr-* token 的桥接，两者都是 :root 特异度，靠**源码顺序**决定谁生效。
+import "element-plus/theme-chalk/base.css";
+import "element-plus/theme-chalk/el-switch.css";
 import "@/styles/global.css";
 
 const app = createApp(App);

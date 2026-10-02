@@ -23,9 +23,18 @@ import type { ChatMessage } from "@/types/chat";
  * 安全边界：AI 回答经 `renderMarkdown` 处理（markdown-it 禁 HTML +
  * 协议白名单 + DOMPurify 清洗），结果通过 `v-html` 插入是安全的。
  * 用户消息一律用 `{{ }}` 文本插值，不走 HTML 渲染。
+ *
+ * 关于 `showDevInfo`：trace_id 是排障用的，普通用户看不出它有什么用，
+ * 因此只在用户显式打开「通用设置 → 开发者信息」时显示。
+ * 用 prop 而不是在这里读 `settingsStore`：本组件是纯展示组件（与 `ChatInput`、
+ * `SourceList` 一致，数据一律由父组件传入），读 store 会让它无法脱离 Pinia 单独使用，
+ * 数据来源也变得不透明。
  */
 
-const props = defineProps<{ message: ChatMessage }>();
+const props = withDefaults(defineProps<{ message: ChatMessage; showDevInfo?: boolean }>(), {
+  // 默认关闭：忘记传这个 prop 时应当"少显示调试信息"，而不是把它暴露给所有调用方。
+  showDevInfo: false,
+});
 
 const renderedHtml = computed(() => renderMarkdown(props.message.content));
 const isUser = computed(() => props.message.role === "user");
@@ -63,7 +72,8 @@ const isUser = computed(() => props.message.role === "user");
 
         <SourceList :sources="message.sources" />
 
-        <p v-if="message.traceId" class="message__trace">
+        <!-- trace_id 同样只在开发者信息开启时显示（见文件头的 showDevInfo 说明） -->
+        <p v-if="showDevInfo && message.traceId" class="message__trace">
           trace_id: <code>{{ message.traceId }}</code>
         </p>
       </template>

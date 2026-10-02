@@ -339,7 +339,7 @@ onBeforeUnmount(() => {
   justify-content: center;
   gap: var(--kr-space-2);
   padding: 9px 12px;
-  border-radius: var(--kr-radius);
+  border-radius: var(--kr-radius-btn);
   border: 1px solid var(--kr-border-strong);
   background: var(--kr-panel-solid);
   color: var(--kr-text);
@@ -501,7 +501,7 @@ onBeforeUnmount(() => {
   position: fixed;
   z-index: 60;
   padding: 5px;
-  border-radius: 10px;
+  border-radius: var(--kr-radius-card);
   border: 1px solid var(--kr-border);
   background: var(--kr-panel);
   backdrop-filter: blur(12px);

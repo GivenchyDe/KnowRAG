@@ -29,15 +29,25 @@
   --kr-danger: #dc2626;
   --kr-danger-soft: rgba(220, 38, 38, 0.1);
 
-  /* 圆角 */
+  /* 圆角：**只有一套体系**，三档各司其职，不再有"两套并存"。
+       卡片（容器，全站统一） 16
+       输入框                 10
+       按钮                   8
+     取值来源：产品在「统一个人设置弹窗与会话历史页」中给出（16 / 10 / 8）。 */
   --kr-radius-sm: 8px;
   --kr-radius: 12px;
-  --kr-radius-lg: 18px;
+  --kr-radius-card: 16px;
+  --kr-radius-input: 10px;
+  --kr-radius-btn: 8px;
   --kr-radius-pill: 999px;
 
-  /* 阴影：保持非常轻，避免厚重投影 */
+  /* 阴影：保持非常轻，避免厚重投影。
+     --kr-shadow        ：页面内的卡片（贴在同一层平面上，只需一点点分离感）
+     --kr-shadow-overlay：浮层（弹窗），它要压住背后的整页内容，需要更大的投影半径，
+                          但仍然只用 8% 的黑色，不做成"厚重投影"。 */
   --kr-shadow-sm: 0 1px 2px rgba(20, 24, 35, 0.04);
   --kr-shadow: 0 4px 16px rgba(20, 24, 35, 0.06);
+  --kr-shadow-overlay: 0 8px 32px rgba(0, 0, 0, 0.08);
 
   /* 字体与间距 */
   --kr-font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB",
@@ -51,9 +61,9 @@
   --kr-space-6: 32px;
   --kr-space-7: 48px;
 
-  --kr-transition: 160ms ease;
+  --kr-transition: 200ms ease;
 
-  /* --- 交互面与中性面 ---
+  /* 交互面与中性面 ---
      这些颜色原先在各组件里硬编码成 rgba(20,24,35,.0x)（近黑叠层）。
      在深色主题下近黑叠层会完全看不见，hover 等状态会整片消失，
      所以统一提升为 token，深色下换成白色叠层。 */
@@ -63,6 +73,10 @@
   --kr-code-bg: rgba(20, 24, 35, 0.06);
   --kr-track: rgba(20, 24, 35, 0.07);
   --kr-toggle-off: rgba(20, 24, 35, 0.15);
+  /* 列表行 / 可点卡片在 hover 时的底色。
+     与 --kr-hover（4% 近黑叠层）分开：叠层色落在白底与落在浅灰底上的观感不同，
+     而"整行变深一档"需要的是一个确定的实色，产品给的值是 #f1f3f7。 */
+  --kr-surface-hover: #f1f3f7;
   /* 输入框边框比常规边框更实一些，让可输入区域更明确 */
   --kr-input-border: rgba(20, 24, 35, 0.22);
   /* 主色 hover：浅色下加深，深色下必须变亮（见下面的 dark 覆盖） */
@@ -71,6 +85,9 @@
   --kr-on-primary: #ffffff;
   /* 模态框遮罩。深色主题下近黑遮罩会"看不见"，需要加深才压得住背后的内容 */
   --kr-overlay: rgba(20, 24, 35, 0.28);
+  /* 浮层（弹窗）自身表面：比页面内卡片更实一点（96%），因为背后是整页内容，
+     半透明到 72% 会透出噪点、正文读起来发花；配合 12px 毛玻璃保留轻盈感。 */
+  --kr-overlay-panel: rgba(255, 255, 255, 0.96);
 
   /* 滚动条：极细、半透明、悬停加深。详见文件末尾的滚动条样式块。
      半透明而不是实色，是为了让它压在面板/磨砂背景上也自然。 */
@@ -78,6 +95,54 @@
   --kr-scrollbar-thumb-hover: rgba(20, 24, 35, 0.32);
   /* 6px：细到几乎不打扰阅读，同时仍可按住拖动 */
   --kr-scrollbar-size: 6px;
+
+  /* =========================================================================== *
+   * Element Plus token 桥接
+   *
+   * 为什么需要这一段：Element Plus 的深色模式靠给 `<html>` 加 `.dark` 类外加一份
+   * `dark/css-vars.css`，而本项目用 `data-theme="dark"` 属性 + 自己的 token。
+   * 引入两套主题机制必然会出现"页面是深色、某个 EP 组件还是浅色"的错位。
+   *
+   * 做法：把 EP 的 --el-* 变量直接指向本项目的 --kr-* token。
+   * 注意**只在 :root 声明一次**即可覆盖深浅两套主题——EP 变量与 --kr-* token
+   * 都声明在同一个元素（html）上，`:root[data-theme="dark"]` 覆盖 --kr-primary 后，
+   * `--el-color-primary` 会跟着解析成深色主题的值，子元素继承的是计算结果。
+   *
+   * 只映射当前用到与最常用的一组；新增 EP 组件时按需补充
+   * （如用到消息提示要补 --el-color-primary-light-9 这类派生色）。
+   * =========================================================================== */
+  --el-color-primary: var(--kr-primary);
+  --el-color-success: var(--kr-success);
+  --el-color-warning: var(--kr-warning);
+  --el-color-danger: var(--kr-danger);
+  --el-color-error: var(--kr-danger);
+  --el-color-info: var(--kr-text-secondary);
+  --el-text-color-primary: var(--kr-text);
+  --el-text-color-regular: var(--kr-text-secondary);
+  --el-border-color: var(--kr-border-strong);
+  --el-border-color-light: var(--kr-border);
+  --el-bg-color: var(--kr-panel-solid);
+  --el-bg-color-overlay: var(--kr-panel-solid);
+  --el-fill-color-blank: var(--kr-panel-solid);
+  --el-fill-color-light: var(--kr-sunken);
+  --el-font-family: var(--kr-font);
+  --el-border-radius-base: var(--kr-radius);
+  /* 这两个必须是**纯时长**：EP 还会把它们拼进 `--el-transition-all` 这类复合变量，
+     写成 `160ms ease` 会拼出两个缓动函数而使那条 transition 整体失效。 */
+  --el-transition-duration: 160ms;
+  --el-transition-duration-fast: 120ms;
+}
+
+/* 开关的两个颜色变量**必须**声明在 `.el-switch` 上，不能放上面的 `:root` 里。
+   原因：EP 自己的 `theme-chalk/el-switch.css` 把
+   `--el-switch-on-color` / `--el-switch-off-color` 声明在 `.el-switch` 元素上，
+   而**元素自身的声明优先于从 :root 继承的值**——写在 :root 会被 EP 的默认值
+   （`--el-switch-off-color: var(--el-border-color)`）静默盖掉，开关底色就不会走
+   本项目的 token。实测确认过：写在 :root 时读到的仍是 --el-border-color 的值。
+   这里靠选择器特异度相同、但 global.css 在 main.ts 中于 EP 样式**之后**引入而生效。 */
+.el-switch {
+  --el-switch-on-color: var(--kr-primary);
+  --el-switch-off-color: var(--kr-toggle-off);
 }
 
 /**
@@ -125,10 +190,13 @@
   --kr-toggle-off: rgba(255, 255, 255, 0.2);
   --kr-input-border: rgba(255, 255, 255, 0.22);
   --kr-overlay: rgba(0, 0, 0, 0.55);
+  --kr-overlay-panel: rgba(28, 31, 40, 0.96);
+  --kr-surface-hover: rgba(255, 255, 255, 0.06);
 
   /* 深色下阴影要更重才看得出层次 */
   --kr-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
   --kr-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
+  --kr-shadow-overlay: 0 8px 32px rgba(0, 0, 0, 0.6);
 
   --kr-scrollbar-thumb: rgba(255, 255, 255, 0.16);
   --kr-scrollbar-thumb-hover: rgba(255, 255, 255, 0.3);
@@ -247,12 +315,21 @@ pre {
   }
 }
 
-/* --- 通用面板：轻微磨砂玻璃质感 --- */
+/* --- 通用卡片 ---
+ *
+ * 全站**唯一**的框框语言：浅色半透明底 + 1px 浅灰边框 + 轻微毛玻璃 +
+ * 16px 圆角 + 极轻阴影。页面骨架（侧边栏、顶栏、消息区、右侧信息面板）
+ * 与页内分区（文档/设置/历史页的分组）都用它，不再出现"有的是卡片、
+ * 有的是通栏条"的混搭。
+ *
+ * 阴影用 --kr-shadow 而不是 --kr-shadow-sm：后者只有 1px 的贴边投影，
+ * 卡片边界几乎看不出来，内容少时会被读成"漏白"（实测踩过）。
+ * 边框 + 这一点阴影是卡片能被"看见"的必要条件。 */
 .kr-panel {
   background: var(--kr-panel);
   border: 1px solid var(--kr-border);
-  border-radius: var(--kr-radius-lg);
-  box-shadow: var(--kr-shadow-sm);
+  border-radius: var(--kr-radius-card);
+  box-shadow: var(--kr-shadow);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
@@ -307,7 +384,7 @@ pre {
  * 这类全局工具类的先例，这里沿用同一约定。
  * =========================================================================== */
 
-/* 按钮圆角按产品要求取 10px（小于卡片的 16px、输入框的 12px） */
+/* 按钮：圆角 8px（小于卡片的 16px 与输入框的 10px），高度固定 36px */
 .kr-btn {
   font: inherit;
   font-size: 13px;
@@ -316,8 +393,14 @@ pre {
   align-items: center;
   justify-content: center;
   gap: var(--kr-space-2);
+  /* line-height 必须收紧到 1.2，否则 min-height 形同虚设：
+     继承 body 的 1.65 时，13px 文字的行盒就有 21.45px，加上下 padding 16px 与
+     边框 2px 已经 39px，超过 min-height 36px —— 按钮会比设计值高 3px。
+     收紧后行盒 15.6px，总高 33.6px < 36px，min-height 才真正决定高度。 */
+  line-height: 1.2;
+  min-height: 36px;
   padding: 8px 16px;
-  border-radius: 10px;
+  border-radius: var(--kr-radius-btn);
   border: 1px solid transparent;
   cursor: pointer;
   white-space: nowrap;
@@ -367,13 +450,18 @@ pre {
 .kr-field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  /* 8px：标签与输入框之间要能分清"这是一组"，又不能大到让标签看起来脱离了输入框 */
+  gap: 8px;
 }
 
 .kr-label {
   font-size: 12.5px;
   font-weight: 500;
   color: var(--kr-text-secondary);
+  /* 收紧行高：表单标签不需要正文那种 1.65 的行距。继承 1.65 时，
+     标签文字上下各会多出约 4px 的"半行距"，于是"标签与输入框间距 8px"
+     在观感上会变成 11px 左右——声明值对不上看到的值。 */
+  line-height: 1.4;
 }
 
 .kr-input {
@@ -381,7 +469,7 @@ pre {
   font-size: 13.5px;
   width: 100%;
   padding: 9px 12px;
-  border-radius: 12px;
+  border-radius: var(--kr-radius-input);
   border: 1px solid var(--kr-input-border);
   background: var(--kr-panel-solid);
   color: var(--kr-text);
@@ -395,7 +483,11 @@ pre {
   color: var(--kr-text-muted);
 }
 
-.kr-input:hover:not(:disabled) {
+/* hover 时边框加深，但**必须显式排除聚焦态**。
+   原因：`:hover:not(:disabled)` 的特异度是 (0,3,0)，高于 `:focus` 的 (0,2,0)，
+   于是「鼠标停在输入框上并聚焦」时，hover 的灰边框会把聚焦的主色边框盖掉——
+   聚焦光晕还在，所以肉眼很容易忽略，但主色边框确实没生效（已实测确认）。 */
+.kr-input:hover:not(:disabled):not(:focus) {
   border-color: var(--kr-border-strong);
 }
 

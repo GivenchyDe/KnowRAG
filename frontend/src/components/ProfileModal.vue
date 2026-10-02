@@ -329,11 +329,25 @@ async function handleSave(): Promise<void> {
 
 <style scoped>
 .block {
-  margin-bottom: var(--kr-space-5);
+  /* 表单项之间 20px（产品给定值）。原先 24px，是因为没有 label↔input 的间距，
+     整体靠大间距分组；现在组内间距拉开到 8px、组间距收到 20px，
+     分组关系靠"组内近、组间远"表达，比单纯拉大组间距更容易读。 */
+  margin-bottom: 20px;
 }
 
 .block:last-of-type {
   margin-bottom: var(--kr-space-2);
+}
+
+/* 组内（标签 → 输入框 → 说明文字）统一 8px 间距：
+   原先标签与输入框紧贴（0px），标签看起来像输入框的一部分。 */
+.block > .kr-label + .input-row {
+  margin-top: 8px;
+}
+
+.block > .input-row + .kr-help,
+.block > .input-row + .kr-error {
+  margin-top: 8px;
 }
 
 .block__title {

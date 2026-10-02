@@ -18,10 +18,10 @@ import { toErrorMessage } from "@/types/errors";
  * 设计依据：`docs/UI_DESIGN_PROMPT.md`「应用布局」第 1 节——顶部品牌、
  * 新建会话按钮、会话历史列表、功能入口、底部当前用户。
  *
- * 与最初设计的差别（有意调整）：原本「模型设置」「会话历史」是侧边栏里的
- * 独立入口，现在收进底部用户区的「更多」菜单。原因：它们都是低频设置类入口，
- * 常驻占用侧边栏会在会话多时挤压会话列表这一真正高频的区域。
- * 「文档管理」保留在侧边栏，因为它是知识库内容的主要入口。
+ * 与最初设计的差别（有意调整）：原本「模型设置」「会话历史」「文档管理」都是侧边栏里的
+ * 独立入口，现在全部收进底部用户区的「更多」菜单。原因：它们都是低频的页面级入口，
+ * 常驻占用侧边栏会在会话多时挤压会话列表这一真正高频的区域；
+ * 而且同一个路由只保留一个入口，避免"点了会不会是不同功能"的困惑。
  */
 
 const auth = useAuthStore();
@@ -111,6 +111,8 @@ async function handleMenuSelect(key: UserMenuKey): Promise<void> {
     await router.push("/settings");
   } else if (key === "history") {
     await router.push("/history");
+  } else if (key === "docs") {
+    await router.push("/documents");
   } else if (key === "logout") {
     await handleLogout();
   }
@@ -171,10 +173,6 @@ async function handleRemoveConversation(conversationId: string): Promise<void> {
   ui.toast("会话已删除", "success");
 }
 
-function isActive(path: string): boolean {
-  return route.path === path;
-}
-
 const initialLetter = computed(() => (auth.displayName.slice(0, 1) || "?").toUpperCase());
 </script>
 
@@ -212,13 +210,9 @@ const initialLetter = computed(() => (auth.displayName.slice(0, 1) || "?").toUpp
       </RouterLink>
     </nav>
 
-    <!-- 功能入口：模型设置与会话历史已移入底部「更多」菜单，这里只保留文档管理 -->
-    <nav class="sidebar__links" aria-label="功能入口">
-      <RouterLink class="nav-item" :class="{ 'nav-item--active': isActive('/documents') }" to="/documents">
-        <span class="nav-item__icon" aria-hidden="true">▤</span>
-        <span class="nav-item__text">文档管理</span>
-      </RouterLink>
-    </nav>
+    <!-- 功能入口已全部收进底部「更多」菜单（模型设置 / 会话历史 / 文档管理）。
+         这里刻意**不再保留**文档管理入口：同一个路由有两个入口会让人怀疑
+         "它们是不是不同功能"，也会让侧边栏在窄屏下更挤。 -->
 
     <!-- 底部用户区：头像 + 用户名 + 更多按钮 -->
     <div class="sidebar__user">
@@ -264,7 +258,11 @@ const initialLetter = computed(() => (auth.displayName.slice(0, 1) || "?").toUpp
   flex-direction: column;
   gap: var(--kr-space-5);
   padding: var(--kr-space-4);
-  border-right: 1px solid var(--kr-border);
+  /* 卡片语言：与主区里的顶栏 / 消息区 / 右侧面板同一套（圆角 + 边框 + 毛玻璃 + 轻阴影）。
+     不再是"贴左边缘的通栏 + border-right"——那属于另一套语言，两者混用会明显不协调。 */
+  border: 1px solid var(--kr-border);
+  border-radius: var(--kr-radius-card);
+  box-shadow: var(--kr-shadow);
   background: var(--kr-panel);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -323,15 +321,6 @@ const initialLetter = computed(() => (auth.displayName.slice(0, 1) || "?").toUpp
   min-height: 0;
   display: flex;
   flex-direction: column;
-}
-
-.sidebar__links {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex: none;
-  padding-top: var(--kr-space-3);
-  border-top: 1px solid var(--kr-border);
 }
 
 .nav-item {
@@ -460,7 +449,6 @@ const initialLetter = computed(() => (auth.displayName.slice(0, 1) || "?").toUpp
   .brand-text,
   .nav-item__text,
   .sidebar__conv,
-  .sidebar__links,
   .user__name {
     display: none;
   }

@@ -10,7 +10,7 @@
  * 且要贴在按钮上方弹出，原生控件做不到这些。
  */
 
-export type UserMenuKey = "profile" | "general" | "settings" | "history" | "logout";
+export type UserMenuKey = "profile" | "general" | "settings" | "history" | "docs" | "logout";
 
 interface MenuEntry {
   key: UserMenuKey;
@@ -20,11 +20,19 @@ interface MenuEntry {
   danger?: boolean;
 }
 
+/**
+ * 菜单项顺序由产品指定：个人设置 / 通用设置 / 模型设置 / 会话历史 / 文档管理 / 退出登录。
+ *
+ * 「文档管理」放在这一组而不是停留在侧边栏主区：它与上面的模型设置、会话历史同属
+ * "页面级入口"，放在一起才有一致的归属；侧边栏主区让给会话列表这一真正高频的区域
+ * （见 AppSidebar 的说明）。**只保留这一个入口**，避免同一条路径出现两个入口。
+ */
 const ENTRIES: MenuEntry[] = [
   { key: "profile", label: "个人设置" },
   { key: "general", label: "通用设置" },
   { key: "settings", label: "模型设置", dividerBefore: true },
   { key: "history", label: "会话历史" },
+  { key: "docs", label: "文档管理" },
   { key: "logout", label: "退出登录", dividerBefore: true, danger: true },
 ];
 
@@ -60,6 +68,12 @@ const emit = defineEmits<{ select: [key: UserMenuKey] }>();
             <circle cx="12" cy="12" r="8.5" />
             <path d="M12 7.5V12l3 2" stroke-linecap="round" stroke-linejoin="round" />
           </svg>
+          <!-- 文档图标：一页纸 + 折角 + 两行文字（线性、轻量，与其余图标同一线宽） -->
+          <svg v-else-if="entry.key === 'docs'" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M13.5 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5z" stroke-linejoin="round" />
+            <path d="M13.5 3v5.5H19" stroke-linejoin="round" />
+            <path d="M9 13.5h6M9 17h4" stroke-linecap="round" />
+          </svg>
           <svg v-else viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8">
             <path d="M15 4h3.5A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5H15" stroke-linecap="round" />
             <path d="M10 8l-4 4 4 4M6 12h9" stroke-linecap="round" stroke-linejoin="round" />
@@ -75,7 +89,7 @@ const emit = defineEmits<{ select: [key: UserMenuKey] }>();
 .menu {
   min-width: 176px;
   padding: 5px;
-  border-radius: var(--kr-radius);
+  border-radius: var(--kr-radius-card);
   border: 1px solid var(--kr-border);
   /* 轻微玻璃拟态：与侧边栏、面板同一套质感 */
   background: var(--kr-panel);
