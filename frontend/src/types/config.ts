@@ -17,6 +17,8 @@ export interface ModelConfig {
 
   embed_provider: string;
   embed_api_key_masked: string | null;
+  /** 向量模型的接口地址。只有 provider 为 custom 时才有意义（也是界面是否显示输入框的判据） */
+  embed_base_url: string | null;
   embed_model: string;
   /**
    * 当前生效的向量维度（只读回显）。
@@ -30,6 +32,8 @@ export interface ModelConfig {
 
   rerank_provider: string;
   rerank_api_key_masked: string | null;
+  /** 重排模型的接口地址。同 embed_base_url：只有 custom 需要 */
+  rerank_base_url: string | null;
   rerank_model: string;
 
   updated_at: string | null;
@@ -53,11 +57,15 @@ export interface ModelConfigUpdate {
 
   embed_provider?: string;
   embed_api_key?: string | null;
+  /** 只有 provider 为 custom 时才提交（后端也会在切换 provider 时按目录兜底写入） */
+  embed_base_url?: string | null;
   embed_model?: string;
   // 没有 embed_dimension：后端按模型实测值维护，提交它会被 422 拒绝
 
   rerank_provider?: string;
   rerank_api_key?: string | null;
+  /** 同 embed_base_url */
+  rerank_base_url?: string | null;
   rerank_model?: string;
 }
 
@@ -69,13 +77,51 @@ export interface ModelConfigUpdateResult {
   message: string;
 }
 
-/** provider 目录项。前端不硬编码 provider 与模型名，一律从接口获取 */
+/**
+ * 目录里的一个预设模型。
+ *
+ * 注意：**界面上目前没有消费方**——模型名是纯手输（原因见
+ * `UI_DESIGN_PROMPT.md` 第 5 节：`<datalist>` 的原生箭头无法用 CSS 隐藏）。
+ * 保留该类型是因为后端目录仍在返回它（接口契约的一部分），
+ * 将来若改成自绘候选面板可以直接用。
+ */
+export interface ProviderModelOption {
+  /** 提交给供应商的模型 ID（原样透传，大小写敏感） */
+  value: string;
+  /** 下拉里显示的名字 */
+  label: string;
+  /** 该 provider 的推荐型号：列表排最前并加 ⭐ 标记 */
+  recommended: boolean;
+}
+
+/**
+ * provider 目录项。前端不硬编码 provider 与模型名，一律从接口获取。
+ *
+ * 注意 `models` 是**下拉建议**而不是白名单：用户可以直接输入列表之外的模型 ID，
+ * 前端不做拦截（供应商上新远快于本项目发版），后端也不校验。
+ */
 export interface ProviderOption {
   value: string;
   label: string;
+  /**
+   * 默认接口地址。
+   *
+   * `null` 表示"没有可直接使用的默认地址"，此时分两种情况，
+   * **不能用它来判断界面是否要显示地址输入框**（那会让 qwen 也被要求填地址）：
+   *   - 端点由后端代码固定（qwen 的向量与重排）→ 用户不需要也不能填；
+   *   - 必须由用户填写（value === "custom"）→ 界面必须给输入框。
+   */
   default_base_url: string | null;
+  /** custom 为空字符串：没有可推荐的默认模型，必须由用户填写 */
   default_model: string;
-  suggested_models: string[];
+  /**
+   * 该 provider 的地址是否必须由用户填写（当前只有 custom 为 true）。
+   *
+   * 界面据此决定显不显示地址输入框——**不要**用 `default_base_url === null` 代替：
+   * qwen 的向量/重排也没有可展示的地址，但端点由后端固定，不需要用户填。
+   */
+  requires_base_url: boolean;
+  models: ProviderModelOption[];
 }
 
 /** 支持的 provider 列表，对应 GET /api/config/providers */

@@ -28,6 +28,9 @@
   --kr-warning-soft: rgba(217, 119, 6, 0.1);
   --kr-danger: #dc2626;
   --kr-danger-soft: rgba(220, 38, 38, 0.1);
+  /* 危险色描边用的边框色：比 --kr-danger 淡（40%），用于行内的破坏性操作按钮
+     （清除已保存的 Key 这类）：需要被认出是危险动作，但不该和主行动抢注意力。 */
+  --kr-danger-border: rgba(220, 38, 38, 0.4);
 
   /* 圆角：**只有一套体系**，三档各司其职，不再有"两套并存"。
        卡片（容器，全站统一） 16
@@ -180,6 +183,8 @@
   --kr-warning-soft: rgba(251, 191, 36, 0.14);
   --kr-danger: #f87171;
   --kr-danger-soft: rgba(248, 113, 113, 0.14);
+  /* 深色下危险色更亮，描边同步用它的 45%——直接沿用浅色那份 rgba 会在深底上糊成一团 */
+  --kr-danger-border: rgba(248, 113, 113, 0.45);
 
   /* 交互面翻转成白色叠层：近黑叠层在深底上等于没有 */
   --kr-hover: rgba(255, 255, 255, 0.06);
@@ -444,6 +449,43 @@ pre {
 .kr-btn--danger:hover:not(:disabled) {
   /* 危险色没有单独的 hover token：用 filter 压暗，深浅主题下都成立 */
   filter: brightness(0.92);
+}
+
+/* 主色描边：行内位置上的"正向"操作（填写 / 替换 / 开始编辑）。
+   一屏里填充版 .kr-btn--primary 只应有一个（主提交动作），
+   行内操作需要"看得出是主色、但不抢焦点"，所以透明底 + 主色描边。 */
+.kr-btn--outline-primary {
+  background: transparent;
+  border-color: var(--kr-primary);
+  color: var(--kr-primary);
+}
+
+.kr-btn--outline-primary:hover:not(:disabled) {
+  /* 用 --kr-primary-soft（主色的 10% 底），深浅主题各有一份取值 */
+  background: var(--kr-primary-soft);
+}
+
+/* 危险色描边：破坏性但可恢复的行内操作（清除已保存的 Key 等）。
+   边框取 --kr-danger-border（40% 的危险色），文字用满色危险色：
+   "看得出危险"与"别太吵"之间的取中。 */
+.kr-btn--outline-danger {
+  background: transparent;
+  border-color: var(--kr-danger-border);
+  color: var(--kr-danger);
+}
+
+.kr-btn--outline-danger:hover:not(:disabled) {
+  background: var(--kr-danger-soft);
+}
+
+/* 紧凑按钮：矮一档（32px），用于表单行内的次要操作（替换 / 清除 / 填写 /
+   取消 / 撤销 / 测试连接）。
+   它**只覆盖尺寸**——圆角、边框、背景、hover 全部沿用 .kr-btn / .kr-btn--ghost，
+   因此同一行里并排的紧凑按钮与标准按钮看起来仍是同一个系统里的东西。
+   padding 纵向为 0：高度完全由 min-height 决定，不会出现"字多一行就变高"。 */
+.kr-btn--compact {
+  min-height: 32px;
+  padding: 0 16px;
 }
 
 /* --- 表单：标签 / 输入框 / 说明 / 错误 --- */

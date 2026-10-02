@@ -34,7 +34,7 @@ const props = withDefaults(
     model: string;
     /** 测试类别。取值与后端 `kind` 一致（llm / embed / rerank），避免多一层映射表 */
     testType: ConnectionTestKind;
-    /** 表单里填的 Base URL（仅 LLM 有意义）。留空时后端按 provider 目录兜底 */
+    /** 表单里填的 Base URL。custom provider 必填；其余留空时后端按 provider 目录兜底 */
     baseUrl?: string;
     /** 用户临时输入的新 Key；为空表示"没有新 Key" */
     apiKey?: string;
@@ -142,11 +142,23 @@ async function handleTest(): Promise<void> {
 
 <template>
   <div class="test-connection">
-    <button class="btn btn--ghost" type="button" :disabled="testing" @click="handleTest">
+    <!-- 说明这次点下去用的是哪把 Key：用户看不到明文，必须由界面告诉他"测的是已保存的那把"。
+         刻意是普通文字而不是按钮/开关：它是一个说明，不是可操作项；
+         放在按钮**左侧**且与它同处一行，不单独占行。
+         注意：这一行是 `willUseSavedKey` 的唯一消费点，注释掉它会让 vue-tsc 报
+         TS6133（声明未使用）而构建失败——不要的话请把那个计算属性一并删除。 -->
+    <span v-if="willUseSavedKey" class="test-connection__hint">使用已保存的 Key 测试</span>
+    <!-- 主色**填充**按钮：这一栏里只有它是"动作型"入口（左侧的替换/清除/填写都是
+         描边），因此用填充把层级拉开；尺寸仍是 .kr-btn--compact（32px），
+         与同排按钮完全一致。 -->
+    <button
+      class="kr-btn kr-btn--primary kr-btn--compact"
+      type="button"
+      :disabled="testing"
+      @click="handleTest"
+    >
       {{ testing ? "测试中…" : "测试连接" }}
     </button>
-    <!-- 说明这次点下去用的是哪把 Key：用户看不到明文，必须由界面告诉他"测的是已保存的那把" -->
-    <span v-if="willUseSavedKey" class="test-connection__hint">使用已保存的 Key 测试</span>
   </div>
 </template>
 
@@ -154,45 +166,16 @@ async function handleTest(): Promise<void> {
 .test-connection {
   display: flex;
   align-items: center;
-  gap: var(--kr-space-3);
+  /* 8px：提示与它说明的按钮要贴得比与别的操作更近，才能被读成"一组" */
+  gap: var(--kr-space-2);
   flex-wrap: wrap;
-}
-
-/* 按钮样式与其他次要按钮一致（圆角 10px / 高 36px 由全局 .kr-btn 体系提供，
-   这里沿用页面已有的 .btn 类，保证三处按钮视觉完全相同） */
-.btn {
-  font: inherit;
-  font-weight: 500;
-  min-height: 36px;
-  line-height: 1.2;
-  font-size: 13px;
-  padding: 8px 16px;
-  border-radius: var(--kr-radius-btn);
-  cursor: pointer;
-  transition:
-    background var(--kr-transition),
-    border-color var(--kr-transition),
-    color var(--kr-transition);
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn--ghost {
-  border: 1px solid var(--kr-border-strong);
-  background: transparent;
-  color: var(--kr-text-secondary);
-}
-
-.btn--ghost:hover:not(:disabled) {
-  background: var(--kr-hover);
-  color: var(--kr-text);
 }
 
 .test-connection__hint {
   font-size: 12.5px;
-  color: var(--kr-text-secondary);
+  /* 比正文更淡一档的辅助说明（#9CA3AF = --kr-text-muted）：
+     它只是解释这次测的是哪把 Key，不该与按钮争夺注意力 */
+  color: var(--kr-text-muted);
+  line-height: 1.6;
 }
 </style>
