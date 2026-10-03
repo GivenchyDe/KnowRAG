@@ -149,21 +149,14 @@ class ModelConfigUpdateResponse(BaseModel):
     message: str
 
 
-class ModelOptionResponse(BaseModel):
-    """目录里的一个预设模型。
-
-    `models` 是**下拉建议**而不是白名单：前端用 `<datalist>` 呈现，
-    用户可以直接输入列表之外的模型 ID（供应商上新远快于本项目发版）。
-    """
-
-    value: str
-    label: str
-    # 该 provider 的推荐型号：前端排在列表最前并加「⭐ 推荐」标记
-    recommended: bool = False
-
-
 class ProviderOptionResponse(BaseModel):
-    """provider 目录项。"""
+    """provider 目录项。
+
+    曾经还有一个 `models` 字段（预设模型列表，供前端 `<datalist>` 做建议下拉）：
+    界面改成纯手输之后它没有消费方了，2026-10-04 删除。需要建议列表时应当
+    自绘候选面板或改用 Element Plus 的 `el-autocomplete`（原生 `datalist`
+    右端的箭头无法用 CSS 隐藏，见 `docs/UI_DESIGN_PROMPT.md` 第 5 节）。
+    """
 
     value: str
     label: str
@@ -176,9 +169,6 @@ class ProviderOptionResponse(BaseModel):
     # 前端据此决定是否显示地址输入框——**不要**用 `default_base_url is None` 代替：
     # qwen 的向量/重排也没有可展示的地址，但端点由代码固定，用户不需要填。
     requires_base_url: bool = False
-    # 预设模型列表（custom 为空列表）。字段名由 2026-10-02 的
-    # `suggested_models: list[str]` 改名而来：字符串列表无法表达显示名与推荐标记。
-    models: list[ModelOptionResponse] = Field(default_factory=list)
 
 
 class ProvidersResponse(BaseModel):

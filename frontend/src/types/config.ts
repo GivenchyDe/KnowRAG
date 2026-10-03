@@ -78,27 +78,12 @@ export interface ModelConfigUpdateResult {
 }
 
 /**
- * 目录里的一个预设模型。
- *
- * 注意：**界面上目前没有消费方**——模型名是纯手输（原因见
- * `UI_DESIGN_PROMPT.md` 第 5 节：`<datalist>` 的原生箭头无法用 CSS 隐藏）。
- * 保留该类型是因为后端目录仍在返回它（接口契约的一部分），
- * 将来若改成自绘候选面板可以直接用。
- */
-export interface ProviderModelOption {
-  /** 提交给供应商的模型 ID（原样透传，大小写敏感） */
-  value: string;
-  /** 下拉里显示的名字 */
-  label: string;
-  /** 该 provider 的推荐型号：列表排最前并加 ⭐ 标记 */
-  recommended: boolean;
-}
-
-/**
  * provider 目录项。前端不硬编码 provider 与模型名，一律从接口获取。
  *
- * 注意 `models` 是**下拉建议**而不是白名单：用户可以直接输入列表之外的模型 ID，
- * 前端不做拦截（供应商上新远快于本项目发版），后端也不校验。
+ * 模型名是**纯手输**：这里曾经有 `models`（预设列表）与 `ProviderModelOption`，
+ * 供 `<datalist>` 做建议下拉；2026-10-04 删除，因为那个原生箭头无法用 CSS 隐藏、
+ * 界面改成了手输，列表就没有消费方了。将来要做建议列表，应当自绘候选面板或改用
+ * Element Plus 的 `el-autocomplete`，而不要再搬回原生 `datalist`。
  */
 export interface ProviderOption {
   value: string;
@@ -121,7 +106,6 @@ export interface ProviderOption {
    * qwen 的向量/重排也没有可展示的地址，但端点由后端固定，不需要用户填。
    */
   requires_base_url: boolean;
-  models: ProviderModelOption[];
 }
 
 /** 支持的 provider 列表，对应 GET /api/config/providers */

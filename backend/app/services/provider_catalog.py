@@ -1,23 +1,19 @@
-"""provider 目录：各 provider 的默认值与预设模型列表。
+"""provider 目录：各 provider 的默认地址与默认模型。
 
 设计意图：**前端不硬编码 provider 与模型名**。`README.md` 第 3.2 节特别提醒
 「模型供应商会更新模型名和推荐版本，前端 provider 列表由后端配置返回」，
 因此这里集中维护一份目录，由 `GET /api/config/providers` 暴露给前端，
-将来新增 provider 或调整推荐模型只改这一个文件。
+将来新增 provider 或调整默认模型只改这一个文件。
 
 **本系统只支持远程 Provider**：本地模型方案已于 2026-10-02 整体移除（本地权重加载、
 进程级缓存、`local` 取值与环境变量路径一并删除），因此每个 provider 都需要 API Key，
 这里也不再需要"该 provider 是否需要 Key"这类判断。
 
-## 预设模型是「预设 + 手动输入」的混合方案
-
-`models` 只是**下拉建议**，不是白名单：前端用 `<datalist>` 呈现它，用户可以直接
-输入列表里没有的模型 ID，后端也不做校验（供应商上新的速度远快于本项目发版）。
-因此新增/淘汰模型只需要改本文件，不需要动前端，也不会拦住想用新模型的用户。
-
-`recommended` 标记该 provider 的推荐型号：前端把它排在列表最前并加标记，
-`default_model` 也应当与它一致——否则"切换到该 provider 时自动填的模型"
-与"列表里标着推荐的模型"会不是同一个，用户会以为是 bug。
+**模型名由用户手输**，目录只给一个 `default_model`（切换 provider 时自动填、
+以及输入框的 placeholder 用它）。2026-10-04 之前这里还有一份 `models` 预设列表，
+用于前端 `<datalist>` 的建议下拉；由于浏览器给 `<input list>` 画的原生箭头无法用 CSS
+隐藏，界面改成了纯手输，那份列表就没有消费方了，因此删除——需要建议列表时应当
+自绘候选面板或改用 Element Plus 的 `el-autocomplete`，而不是把原生 `datalist` 加回来。
 
 ## base_url 的三种情况
 
@@ -31,14 +27,15 @@
 3. **必须由用户提供**（`custom`）：`default_base_url` 为 `None`，
    由 `requires_explicit_base_url()` 标出，配置层会要求用户填写。
 
-## 地址与模型名的来源（2026-10-02 核对）
+## 地址与模型名的来源（2026-10-04 复核）
 
-`deepseek-v4-pro` / `deepseek-v4-flash`、智谱 `https://open.bigmodel.cn/api/paas/v4`、
-硅基流动 `https://api.siliconflow.cn/v1` 均按各家官方文档核对后写入；
-MiMo 的 `https://api.xiaomimimo.com/v1` 来自其官方开放平台说明。
-**注意**：`deepseek-chat` / `deepseek-reasoner` 已于 2026-07-24 下线，
-迁移脚本会把库里残留的这两个旧名改写为 `deepseek-v4-pro`（见
-`alembic/versions/*_add_embed_rerank_base_url*.py`）。
+- DeepSeek：官方 2026-09-10 公告明确「Set your model to `deepseek-flash`」（V4.1-Flash），
+  且 `deepseek-v4-flash` / `deepseek-v4-pro` 都已被路由到 V4.1-Flash（V4-Pro 正在退场），
+  因此这里的 `default_model` 用 `deepseek-flash`。更早的 `deepseek-chat` /
+  `deepseek-reasoner` 已于 2026-07-24 下线，迁移脚本会把库里残留的旧名改写掉
+  （见 `alembic/versions/*_add_embed_rerank_base_url*.py`）。
+- 智谱 `https://open.bigmodel.cn/api/paas/v4`、硅基流动 `https://api.siliconflow.cn/v1`
+  按各家官方文档核对；MiMo 的 `https://api.xiaomimimo.com/v1` 来自其官方开放平台说明。
 """
 
 from __future__ import annotations
@@ -46,8 +43,8 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import TypedDict
 
-# 三类 provider 里都存在的"自定义端点"取值：目录里没有默认地址与预设模型，
-# 全部由用户填写。用常量而不是散落的字面量，避免各处拼错后静默走错分支。
+# 三类 provider 里都存在的"自定义端点"取值：目录里没有默认地址，
+# 地址与模型名全部由用户填写。用常量而不是散落的字面量，避免各处拼错后静默走错分支。
 CUSTOM_PROVIDER = "custom"
 
 
@@ -80,19 +77,6 @@ class RerankProvider(StrEnum):
     CUSTOM = CUSTOM_PROVIDER
 
 
-class ModelOption(TypedDict):
-    """一个预设模型。
-
-    `value` 是提交给供应商的模型 ID（原样透传，大小写敏感——硅基流动的
-    `Qwen/Qwen3-32B` 这类 ID 带组织前缀且区分大小写）；
-    `label` 是下拉里给人看的名字。
-    """
-
-    value: str
-    label: str
-    recommended: bool
-
-
 class ProviderOption(TypedDict):
     """单个 provider 的可选项描述。"""
 
@@ -103,7 +87,6 @@ class ProviderOption(TypedDict):
     default_base_url: str | None
     # custom 为空字符串：没有可推荐的默认值，必须由用户填写。
     default_model: str
-    models: list[ModelOption]
     # 该 provider 的地址是否**必须由用户填写**（当前只有 custom 为 True）。
     # 放进目录而不是让前端判断 provider 名：前端不硬编码 provider 与模型名
     # （README 3.2），由后端把"要不要显示地址输入框"这件事作为数据告诉它。
@@ -132,12 +115,10 @@ _PROVIDER_CATALOG: dict[str, list[ProviderOption]] = {
             "value": LLMProvider.DEEPSEEK.value,
             "label": "DeepSeek",
             "default_base_url": _DEEPSEEK_BASE_URL,
-            "default_model": "deepseek-v4-pro",
+            # 官方当前推荐的模型名（V4.1-Flash）；旧名 deepseek-v4-flash / deepseek-v4-pro
+            # 仍会被路由到同一个模型，但已不再是"该填的名字"。
+            "default_model": "deepseek-flash",
             "requires_base_url": False,
-            "models": [
-                {"value": "deepseek-v4-pro", "label": "DeepSeek V4 Pro", "recommended": True},
-                {"value": "deepseek-v4-flash", "label": "DeepSeek V4 Flash", "recommended": False},
-            ],
         },
         {
             "value": LLMProvider.QWEN.value,
@@ -145,11 +126,6 @@ _PROVIDER_CATALOG: dict[str, list[ProviderOption]] = {
             "default_base_url": _QWEN_COMPATIBLE_BASE_URL,
             "default_model": "qwen3.7-plus",
             "requires_base_url": False,
-            "models": [
-                {"value": "qwen3.7-max", "label": "Qwen3.7 Max", "recommended": False},
-                {"value": "qwen3.7-plus", "label": "Qwen3.7 Plus", "recommended": True},
-                {"value": "qwen3.7-flash", "label": "Qwen3.7 Flash", "recommended": False},
-            ],
         },
         {
             "value": LLMProvider.ZHIPU.value,
@@ -157,11 +133,6 @@ _PROVIDER_CATALOG: dict[str, list[ProviderOption]] = {
             "default_base_url": _ZHIPU_BASE_URL,
             "default_model": "glm-4-plus",
             "requires_base_url": False,
-            "models": [
-                {"value": "glm-4-plus", "label": "GLM-4 Plus", "recommended": True},
-                {"value": "glm-4-air", "label": "GLM-4 Air", "recommended": False},
-                {"value": "glm-4-flash", "label": "GLM-4 Flash", "recommended": False},
-            ],
         },
         {
             "value": LLMProvider.MIMO.value,
@@ -169,10 +140,6 @@ _PROVIDER_CATALOG: dict[str, list[ProviderOption]] = {
             "default_base_url": _MIMO_BASE_URL,
             "default_model": "mimo-v2.5-pro",
             "requires_base_url": False,
-            "models": [
-                {"value": "mimo-v2.5-pro", "label": "MiMo V2.5 Pro", "recommended": True},
-                {"value": "mimo-v2.5", "label": "MiMo V2.5", "recommended": False},
-            ],
         },
         {
             "value": LLMProvider.SILICONFLOW.value,
@@ -180,10 +147,6 @@ _PROVIDER_CATALOG: dict[str, list[ProviderOption]] = {
             "default_base_url": _SILICONFLOW_BASE_URL,
             "default_model": "Qwen/Qwen3-32B",
             "requires_base_url": False,
-            "models": [
-                {"value": "Qwen/Qwen3-32B", "label": "Qwen3 32B", "recommended": True},
-                {"value": "deepseek-ai/DeepSeek-R1", "label": "DeepSeek R1", "recommended": False},
-            ],
         },
         {
             "value": LLMProvider.CUSTOM.value,
@@ -193,7 +156,6 @@ _PROVIDER_CATALOG: dict[str, list[ProviderOption]] = {
             "default_base_url": None,
             "default_model": "",
             "requires_base_url": True,
-            "models": [],
         },
     ],
     "embed": [
@@ -205,9 +167,6 @@ _PROVIDER_CATALOG: dict[str, list[ProviderOption]] = {
             "default_base_url": None,
             "default_model": "text-embedding-v4",
             "requires_base_url": False,
-            "models": [
-                {"value": "text-embedding-v4", "label": "Text Embedding V4", "recommended": True},
-            ],
         },
         {
             "value": EmbedProvider.ZHIPU.value,
@@ -215,9 +174,6 @@ _PROVIDER_CATALOG: dict[str, list[ProviderOption]] = {
             "default_base_url": _ZHIPU_BASE_URL,
             "default_model": "embedding-3",
             "requires_base_url": False,
-            "models": [
-                {"value": "embedding-3", "label": "Embedding-3", "recommended": True},
-            ],
         },
         {
             "value": EmbedProvider.SILICONFLOW.value,
@@ -225,9 +181,6 @@ _PROVIDER_CATALOG: dict[str, list[ProviderOption]] = {
             "default_base_url": _SILICONFLOW_BASE_URL,
             "default_model": "BAAI/bge-m3",
             "requires_base_url": False,
-            "models": [
-                {"value": "BAAI/bge-m3", "label": "BGE-M3", "recommended": True},
-            ],
         },
         {
             "value": EmbedProvider.CUSTOM.value,
@@ -235,7 +188,6 @@ _PROVIDER_CATALOG: dict[str, list[ProviderOption]] = {
             "default_base_url": None,
             "default_model": "",
             "requires_base_url": True,
-            "models": [],
         },
     ],
     "rerank": [
@@ -247,9 +199,6 @@ _PROVIDER_CATALOG: dict[str, list[ProviderOption]] = {
             "default_base_url": None,
             "default_model": "gte-rerank-v2",
             "requires_base_url": False,
-            "models": [
-                {"value": "gte-rerank-v2", "label": "GTE Rerank V2", "recommended": True},
-            ],
         },
         {
             "value": RerankProvider.ZHIPU.value,
@@ -257,9 +206,6 @@ _PROVIDER_CATALOG: dict[str, list[ProviderOption]] = {
             "default_base_url": _ZHIPU_BASE_URL,
             "default_model": "rerank",
             "requires_base_url": False,
-            "models": [
-                {"value": "rerank", "label": "GLM Rerank", "recommended": True},
-            ],
         },
         {
             "value": RerankProvider.SILICONFLOW.value,
@@ -267,13 +213,6 @@ _PROVIDER_CATALOG: dict[str, list[ProviderOption]] = {
             "default_base_url": _SILICONFLOW_BASE_URL,
             "default_model": "BAAI/bge-reranker-v2-m3",
             "requires_base_url": False,
-            "models": [
-                {
-                    "value": "BAAI/bge-reranker-v2-m3",
-                    "label": "BGE Reranker V2 M3",
-                    "recommended": True,
-                },
-            ],
         },
         {
             "value": RerankProvider.CUSTOM.value,
@@ -281,20 +220,19 @@ _PROVIDER_CATALOG: dict[str, list[ProviderOption]] = {
             "default_base_url": None,
             "default_model": "",
             "requires_base_url": True,
-            "models": [],
         },
     ],
 }
 
 
 def _copy_option(option: ProviderOption) -> ProviderOption:
-    """复制目录项，**连同 `models` 里的每个 dict 一起**。
+    """返回目录项的副本。
 
-    只写 `dict(option)` 是浅拷贝：`models` 列表仍与全局目录共享同一个对象，
-    调用方（前端序列化前的裁剪、路由层组装响应）一旦就地增删，
-    改的就是全局目录本身——下一次请求返回的就不再是这里写的预设了。
+    目录项现在的所有取值都是不可变的（str / bool / None），浅拷贝就够；
+    仍然复制是因为调用方（路由层组装响应）可能按前端需要裁剪字段，
+    不能让它们改到全局目录本身。
     """
-    return {**option, "models": [dict(model) for model in option["models"]]}
+    return dict(option)  # type: ignore[return-value]
 
 
 def get_catalog() -> dict[str, list[ProviderOption]]:
@@ -317,12 +255,6 @@ def default_for(kind: str, provider: str) -> ProviderOption | None:
 def supported_values(kind: str) -> set[str]:
     """返回某类别下所有合法 provider 取值，用于请求校验。"""
     return {option["value"] for option in _PROVIDER_CATALOG.get(kind, [])}
-
-
-def preset_models(kind: str, provider: str) -> list[ModelOption]:
-    """返回某 provider 的预设模型列表（副本）。custom 返回空列表。"""
-    option = default_for(kind, provider)
-    return [dict(model) for model in option["models"]] if option else []
 
 
 def requires_explicit_base_url(kind: str, provider: str) -> bool:
