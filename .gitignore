@@ -7,6 +7,10 @@
 .env
 .env.local
 .env.*.local
+# 按环境命名的 env 文件（.env.development / .env.production 等）同样不提交。
+# .env.example 是例外：它是给人看的模板，要留在仓库里。
+.env.*
+!.env.example
 *.pem
 *.key
 
@@ -39,6 +43,10 @@ backend/file/
 data/
 *.sqlite3
 *.db
+# 数据库导出文件（mysqldump 出来的整库快照，含密码哈希与加密后的 API Key）
+*.sql
+# git bundle：把整个 git 历史打包成单个文件，提交它等于重新发布历史
+*.bundle
 
 # --- 文档目录（本地保留，不纳入版本控制）---
 # docs/ 仅在本地维护，不提交到仓库；此前已跟踪的版本已用 git rm --cached 取消跟踪。
