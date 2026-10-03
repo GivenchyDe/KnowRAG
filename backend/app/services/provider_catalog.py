@@ -1,19 +1,29 @@
-"""provider 目录：各 provider 的默认地址与默认模型。
+"""provider 目录：各 provider 的默认地址，以及地址是否必须由用户填写。
 
-设计意图：**前端不硬编码 provider 与模型名**。`README.md` 第 3.2 节特别提醒
+设计意图：**前端不硬编码 provider**。`README.md` 第 3.2 节特别提醒
 「模型供应商会更新模型名和推荐版本，前端 provider 列表由后端配置返回」，
 因此这里集中维护一份目录，由 `GET /api/config/providers` 暴露给前端，
-将来新增 provider 或调整默认模型只改这一个文件。
+将来新增 provider 或调整默认地址只改这一个文件。
 
 **本系统只支持远程 Provider**：本地模型方案已于 2026-10-02 整体移除（本地权重加载、
 进程级缓存、`local` 取值与环境变量路径一并删除），因此每个 provider 都需要 API Key，
 这里也不再需要"该 provider 是否需要 Key"这类判断。
 
-**模型名由用户手输**，目录只给一个 `default_model`（切换 provider 时自动填、
-以及输入框的 placeholder 用它）。2026-10-04 之前这里还有一份 `models` 预设列表，
-用于前端 `<datalist>` 的建议下拉；由于浏览器给 `<input list>` 画的原生箭头无法用 CSS
-隐藏，界面改成了纯手输，那份列表就没有消费方了，因此删除——需要建议列表时应当
-自绘候选面板或改用 Element Plus 的 `el-autocomplete`，而不是把原生 `datalist` 加回来。
+## 目录里没有模型名（2026-10-04 改）
+
+模型名**一律由用户填写**，目录不提供任何模型名，代码里也不保留任何内置兜底值。
+以前这里有一份 `models`（预设列表，给 `<datalist>` 做建议下拉）和一个
+`default_model`（切 provider 时自动填入输入框），加上调用层若干 `model or "..."` 的
+静默兜底，共同造成一种状态：**用户不知道自己实际在用哪个模型**——
+界面上显示一个、库里存一个、真正发出去的可能是第三个（其中还有已退场的旧名），
+而 token 成本与回答质量都由用户承担。这几处已在 2026-10-04 全部删除：
+
+- 目录不再返回模型名，界面因此没有可填入、可提示的名字；
+- 模型名为空时**直接报错**（`build_embedding` / `score_with_reranker` /
+  `_build_llm` 各自校验），不再换成别的模型继续跑。
+
+需要"给用户建议"时应当明确做成产品功能（例如可选的自绘候选面板），
+而不是藏在兜底逻辑里。
 
 ## base_url 的三种情况
 
@@ -27,15 +37,14 @@
 3. **必须由用户提供**（`custom`）：`default_base_url` 为 `None`，
    由 `requires_explicit_base_url()` 标出，配置层会要求用户填写。
 
-## 地址与模型名的来源（2026-10-04 复核）
+## 地址来源（2026-10-04 复核）
 
-- DeepSeek：官方 2026-09-10 公告明确「Set your model to `deepseek-flash`」（V4.1-Flash），
-  且 `deepseek-v4-flash` / `deepseek-v4-pro` 都已被路由到 V4.1-Flash（V4-Pro 正在退场），
-  因此这里的 `default_model` 用 `deepseek-flash`。更早的 `deepseek-chat` /
-  `deepseek-reasoner` 已于 2026-07-24 下线，迁移脚本会把库里残留的旧名改写掉
-  （见 `alembic/versions/*_add_embed_rerank_base_url*.py`）。
-- 智谱 `https://open.bigmodel.cn/api/paas/v4`、硅基流动 `https://api.siliconflow.cn/v1`
-  按各家官方文档核对；MiMo 的 `https://api.xiaomimimo.com/v1` 来自其官方开放平台说明。
+智谱 `https://open.bigmodel.cn/api/paas/v4`、硅基流动 `https://api.siliconflow.cn/v1`
+按各家官方文档核对；MiMo 的 `https://api.xiaomimimo.com/v1` 来自其官方开放平台说明；
+DeepSeek 的 `https://api.deepseek.com` 为其 OpenAI 兼容端点。
+模型名方面只保留一条**历史说明**（不再作为默认值）：`deepseek-chat` /
+`deepseek-reasoner` 已于 2026-07-24 下线，`deepseek-v4-flash` / `deepseek-v4-pro`
+也已退场，官方当前要求填 `deepseek-flash`——这些都需要用户自己确认后填写。
 """
 
 from __future__ import annotations
@@ -85,11 +94,9 @@ class ProviderOption(TypedDict):
     # None 表示"没有可直接使用的默认地址"：或由代码固定（qwen 的向量/重排），
     # 或必须由用户填写（custom）。见模块文档的三种情况。
     default_base_url: str | None
-    # custom 为空字符串：没有可推荐的默认值，必须由用户填写。
-    default_model: str
     # 该 provider 的地址是否**必须由用户填写**（当前只有 custom 为 True）。
-    # 放进目录而不是让前端判断 provider 名：前端不硬编码 provider 与模型名
-    # （README 3.2），由后端把"要不要显示地址输入框"这件事作为数据告诉它。
+    # 放进目录而不是让前端判断 provider 名：前端不硬编码 provider（README 3.2），
+    # 由后端把"要不要显示地址输入框"这件事作为数据告诉它。
     # 注意它和 `default_base_url is None` 不是一回事：qwen 的向量/重排也没有
     # 可展示的地址，但端点由代码固定，用户既不需要也不能填。
     requires_base_url: bool
@@ -108,53 +115,45 @@ _MIMO_BASE_URL = "https://api.xiaomimimo.com/v1"
 _SILICONFLOW_BASE_URL = "https://api.siliconflow.cn/v1"
 
 
-# provider 默认值表。
+# provider 默认地址表。**注意这里不含模型名**：模型名由用户填写。
 _PROVIDER_CATALOG: dict[str, list[ProviderOption]] = {
     "llm": [
         {
             "value": LLMProvider.DEEPSEEK.value,
             "label": "DeepSeek",
             "default_base_url": _DEEPSEEK_BASE_URL,
-            # 官方当前推荐的模型名（V4.1-Flash）；旧名 deepseek-v4-flash / deepseek-v4-pro
-            # 仍会被路由到同一个模型，但已不再是"该填的名字"。
-            "default_model": "deepseek-flash",
             "requires_base_url": False,
         },
         {
             "value": LLMProvider.QWEN.value,
             "label": "Qwen",
             "default_base_url": _QWEN_COMPATIBLE_BASE_URL,
-            "default_model": "qwen3.7-plus",
             "requires_base_url": False,
         },
         {
             "value": LLMProvider.ZHIPU.value,
             "label": "智谱 GLM",
             "default_base_url": _ZHIPU_BASE_URL,
-            "default_model": "glm-4-plus",
             "requires_base_url": False,
         },
         {
             "value": LLMProvider.MIMO.value,
             "label": "MiMo",
             "default_base_url": _MIMO_BASE_URL,
-            "default_model": "mimo-v2.5-pro",
             "requires_base_url": False,
         },
         {
             "value": LLMProvider.SILICONFLOW.value,
             "label": "硅基流动",
             "default_base_url": _SILICONFLOW_BASE_URL,
-            "default_model": "Qwen/Qwen3-32B",
             "requires_base_url": False,
         },
         {
             "value": LLMProvider.CUSTOM.value,
             "label": "自定义（OpenAI 兼容）",
-            # 地址与模型名都必须由用户填写：这里没有可推荐的默认值，
+            # 地址与模型名都必须由用户填写：这里没有可推荐的默认地址，
             # 编一个出来只会让"看起来能用、一用就 404"。
             "default_base_url": None,
-            "default_model": "",
             "requires_base_url": True,
         },
     ],
@@ -165,28 +164,24 @@ _PROVIDER_CATALOG: dict[str, list[ProviderOption]] = {
             # 走 DashScope 向量端点（由 SDK 决定），不是 OpenAI 兼容接口，
             # 因此不给用户看的地址，也不接受用户覆盖。
             "default_base_url": None,
-            "default_model": "text-embedding-v4",
             "requires_base_url": False,
         },
         {
             "value": EmbedProvider.ZHIPU.value,
             "label": "智谱 GLM",
             "default_base_url": _ZHIPU_BASE_URL,
-            "default_model": "embedding-3",
             "requires_base_url": False,
         },
         {
             "value": EmbedProvider.SILICONFLOW.value,
             "label": "硅基流动",
             "default_base_url": _SILICONFLOW_BASE_URL,
-            "default_model": "BAAI/bge-m3",
             "requires_base_url": False,
         },
         {
             "value": EmbedProvider.CUSTOM.value,
             "label": "自定义（OpenAI 兼容）",
             "default_base_url": None,
-            "default_model": "",
             "requires_base_url": True,
         },
     ],
@@ -197,28 +192,24 @@ _PROVIDER_CATALOG: dict[str, list[ProviderOption]] = {
             # DashScope 重排是专属端点（`/api/v1/services/rerank/text-rerank/text-rerank`），
             # 请求体形状与 Cohere/Jina 风格的 `/rerank` 不同，地址固定写在 retrieval.py 里。
             "default_base_url": None,
-            "default_model": "gte-rerank-v2",
             "requires_base_url": False,
         },
         {
             "value": RerankProvider.ZHIPU.value,
             "label": "智谱 GLM",
             "default_base_url": _ZHIPU_BASE_URL,
-            "default_model": "rerank",
             "requires_base_url": False,
         },
         {
             "value": RerankProvider.SILICONFLOW.value,
             "label": "硅基流动",
             "default_base_url": _SILICONFLOW_BASE_URL,
-            "default_model": "BAAI/bge-reranker-v2-m3",
             "requires_base_url": False,
         },
         {
             "value": RerankProvider.CUSTOM.value,
             "label": "自定义（OpenAI 兼容）",
             "default_base_url": None,
-            "default_model": "",
             "requires_base_url": True,
         },
     ],

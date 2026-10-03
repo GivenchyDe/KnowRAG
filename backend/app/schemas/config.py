@@ -111,15 +111,16 @@ class ModelConfigUpdate(BaseModel):
 
     @field_validator("llm_model", "embed_model", "rerank_model")
     @classmethod
-    def _reject_blank_model(cls, value: str | None) -> str | None:
-        """模型名不允许为空白字符串。
+    def _normalize_model(cls, value: str | None) -> str | None:
+        """模型名去掉首尾空白。
 
-        模型名是必填项，传空会导致后续创建实例时拿到无意义的取值，
-        这类错误放在请求校验阶段拦截比在 Phase 4 调用模型时报错更早、更容易定位。
+        **空值不在这里报错**：全局的 `RequestValidationError` 处理器故意只回
+        "请求参数校验失败"、不回显字段信息（防止把输入值带回客户端），
+        因此在这里拒绝空模型名，用户看到的会是一句不知道哪个字段出错的提示。
+        改成由 `config_service._validate_model_names` 抛 `MODEL_CONFIG_INVALID`
+        并点名"哪个类别的模型名为空、该 provider 的推荐值是什么"。
         """
-        if value is not None and not value.strip():
-            raise ValueError("模型名不能为空")
-        return value
+        return value.strip() if isinstance(value, str) else value
 
     @field_validator("llm_base_url", "embed_base_url", "rerank_base_url")
     @classmethod
@@ -152,10 +153,13 @@ class ModelConfigUpdateResponse(BaseModel):
 class ProviderOptionResponse(BaseModel):
     """provider 目录项。
 
-    曾经还有一个 `models` 字段（预设模型列表，供前端 `<datalist>` 做建议下拉）：
-    界面改成纯手输之后它没有消费方了，2026-10-04 删除。需要建议列表时应当
-    自绘候选面板或改用 Element Plus 的 `el-autocomplete`（原生 `datalist`
-    右端的箭头无法用 CSS 隐藏，见 `docs/UI_DESIGN_PROMPT.md` 第 5 节）。
+    **目录里没有模型名**（2026-10-04 改）：此前的 `models`（预设列表，供前端
+    `<datalist>` 做建议下拉）与 `default_model`（切 provider 时自动填入输入框）
+    都已删除。模型名一律由用户填写，后端不提供也不兜底——否则会出现
+    "界面显示一个、库里存一个、实际发出去的是另一个"的状态。
+    需要给用户建议时应当明确做成产品功能（例如自绘候选面板或 Element Plus 的
+    `el-autocomplete`；原生 `datalist` 右端的箭头无法用 CSS 隐藏，
+    见 `docs/UI_DESIGN_PROMPT.md` 第 5 节）。
     """
 
     value: str
@@ -163,8 +167,6 @@ class ProviderOptionResponse(BaseModel):
     # None 表示没有可直接使用的默认地址：或由代码固定（qwen 的向量/重排端点），
     # 或必须由用户填写（custom）。
     default_base_url: str | None
-    # custom 为空字符串：没有可推荐的默认模型，必须由用户填写。
-    default_model: str
     # 该 provider 的地址是否必须由用户填写（当前只有 custom 为 True）。
     # 前端据此决定是否显示地址输入框——**不要**用 `default_base_url is None` 代替：
     # qwen 的向量/重排也没有可展示的地址，但端点由代码固定，用户不需要填。

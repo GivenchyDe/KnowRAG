@@ -268,6 +268,15 @@ def _build_llm(config: ModelConfig, *, model: str | None, temperature: float | N
     resolved_temperature = config.llm_temperature if temperature is None else temperature
     resolved_max_tokens = config.llm_max_tokens if max_tokens is None else max_tokens
 
+    # 模型名为空一律报错，**不套用任何内置的模型名**（2026-10-04 改）：
+    # 以前这里有几处 `or "deepseek-v4-pro"` 这类兜底，等于替用户选了一个他从没
+    # 见过的模型（其中还有已经退场的旧名），成本与效果都由他承担却不可见。
+    if not resolved_model:
+        raise AppError(
+            ErrorCode.MODEL_CONFIG_INVALID,
+            "LLM 模型名为空：请求未指定、设置页也没有配置，请在「模型设置」页填写具体模型 ID",
+        )
+
     # 没有存 Key 时给空串，下面统一按"必须有 Key"校验。
     api_key = decrypt_api_key(config.llm_api_key_encrypted) if config.llm_api_key_encrypted else ""
 
@@ -282,7 +291,7 @@ def _build_llm(config: ModelConfig, *, model: str | None, temperature: float | N
         from llama_index.llms.deepseek import DeepSeek
 
         kwargs: dict[str, Any] = {
-            "model": resolved_model or "deepseek-v4-pro",
+            "model": resolved_model,
             "api_key": api_key,
             "temperature": resolved_temperature,
             "max_tokens": resolved_max_tokens,
@@ -296,7 +305,7 @@ def _build_llm(config: ModelConfig, *, model: str | None, temperature: float | N
 
         # DashScope 走阿里云兼容模式端点，base_url 由 SDK 内部管理，这里不额外传。
         return DashScope(
-            model_name=resolved_model or "qwen3.7-plus",
+            model_name=resolved_model,
             api_key=api_key,
             temperature=resolved_temperature,
             max_tokens=resolved_max_tokens,

@@ -92,13 +92,15 @@ def get_or_create_config(db: Session) -> ModelConfig:
         user_id=None,
         llm_provider=llm_provider,
         llm_base_url=llm_default["default_base_url"] if llm_default else None,
-        llm_model=llm_default["default_model"] if llm_default else "deepseek-v4-pro",
+        # 模型名一律留空（2026-10-04 改）：新建配置行不再预填任何模型名，
+        # 由用户在「模型设置」页填写；留空时调用层会明确报错而不是替他选一个。
+        llm_model="",
         embed_provider=embed_provider,
         embed_base_url=embed_default["default_base_url"] if embed_default else None,
-        embed_model=embed_default["default_model"] if embed_default else "text-embedding-v4",
+        embed_model="",
         rerank_provider=rerank_provider,
         rerank_base_url=rerank_default["default_base_url"] if rerank_default else None,
-        rerank_model=rerank_default["default_model"] if rerank_default else "gte-rerank-v2",
+        rerank_model="",
     )
     db.add(config)
     db.commit()
@@ -254,9 +256,13 @@ def load_saved_connection_target(db: Session, *, kind: str, provider: str) -> Sa
             "尚未保存该模型的 API Key，请先填写并保存",
         )
 
-    model = (getattr(config, _SAVED_MODEL_FIELD[kind]) or "").strip() or (
-        option["default_model"] if option else ""
-    )
+    model = (getattr(config, _SAVED_MODEL_FIELD[kind]) or "").strip()
+    # 不再用目录里的模型名兜底（2026-10-04 改）：测试必须针对用户保存的那个模型。
+    if not model:
+        raise AppError(
+            ErrorCode.MODEL_CONFIG_INVALID,
+            "尚未保存该模型的模型名，请先在「模型设置」页填写并保存",
+        )
     # 已保存的地址优先，其次目录里的默认地址；两者都没有则为 None。
     # custom 的地址必须由用户填，因此这种情况下取到的就是用户保存的那一份，
     # 依然满足"地址不由调用方决定"这条安全前提。
@@ -296,13 +302,39 @@ def _validate_providers(payload: ModelConfigUpdate) -> None:
             )
 
 
-def _apply_provider_defaults(
+def _validate_model_names(payload: ModelConfigUpdate, config: ModelConfig) -> None:
+    """拦下显式提交的空模型名。
+
+    前端的输入框被清空时会原样提交空字符串（`buildPayload` 只提交"与当前值不同"
+    的字段），所以必须在这里拦：否则库里会存下一个空模型名，直到真正调用模型时
+    才报错。错误信息里给出该 provider 的推荐值供参考——**只是提示，不会替你写**。
+    """
+    for kind in ("llm", "embed", "rerank"):
+        field = f"{kind}_model"
+        if field not in payload.model_fields_set:
+            continue
+        if str(getattr(payload, field) or "").strip():
+            continue
+        raise AppError(
+            ErrorCode.MODEL_CONFIG_INVALID,
+            f"{kind} 的模型名不能为空：请在「模型设置」页填写具体模型 ID",
+        )
+
+
+def _apply_provider_change(
     config: ModelConfig, changes: dict[str, object], *, provider_field: str, kind: str
 ) -> None:
-    """切换 provider 时补齐该 provider 的默认 base_url 与模型名。
+    """处理一次 provider 变更：要求模型名同批提交，并按目录补齐默认地址。
 
-    否则会出现「provider 已改成 qwen，但模型名仍是 deepseek-chat」这类
-    内部不一致的配置，直到 Phase 4 真正调用模型时才报错。
+    **模型名不再自动补默认值**（2026-10-04 改）：以前 provider 变了而用户没提交
+    模型名时，这里会静默套用目录里的 `default_model`，结果是"库里存着一个用户
+    从没选过的模型"，成本与效果都由用户承担却不可见。现在直接报错，并在错误信息里
+    给出推荐值供参考。空字符串的情况由 `_validate_model_names` 另行拦下。
+
+    地址仍然按目录兜底（`default_base_url`，custom 为 None 即清空）：官方 provider
+    的地址是"你选的服务"的固有属性，界面上也不展示（见 `UI_DESIGN_PROMPT.md` 第 5 节），
+    这与"模型名是用户要在多个型号里做的选择"不是一回事。custom 的地址必填由
+    `requires_explicit_base_url()` 在路由层拦下。
     """
     provider = changes.get(provider_field)
     if provider is None:
@@ -312,14 +344,13 @@ def _apply_provider_defaults(
     if option is None:
         return
 
-    # 只在用户没有显式提交对应字段时兜底，避免覆盖用户的明确选择。
     model_field = f"{kind}_model"
-    if model_field not in changes and option["default_model"]:
-        changes[model_field] = option["default_model"]
+    if model_field not in changes and getattr(config, provider_field) != provider:
+        raise AppError(
+            ErrorCode.MODEL_CONFIG_INVALID,
+            f"切换 {kind} 的 provider 时必须同时提交模型名，后端不会替你选",
+        )
 
-    # 地址同理，三类一致处理。切到 custom 时这里写入的是 None（目录里没有默认地址），
-    # 于是上一个 provider 的地址被清掉、界面提示用户填写——而不是留下一份
-    # 属于别的 provider 的地址继续生效。
     base_url_field = _SAVED_BASE_URL_FIELD[kind]
     if base_url_field not in changes:
         changes[base_url_field] = option["default_base_url"]
@@ -335,12 +366,13 @@ def update_config(
     """
     config = get_or_create_config(db)
     _validate_providers(payload)
+    _validate_model_names(payload, config)
 
     changes: dict[str, object] = payload.model_dump(exclude_unset=True, exclude=_API_KEY_FIELDS)
 
-    _apply_provider_defaults(config, changes, provider_field="llm_provider", kind="llm")
-    _apply_provider_defaults(config, changes, provider_field="embed_provider", kind="embed")
-    _apply_provider_defaults(config, changes, provider_field="rerank_provider", kind="rerank")
+    _apply_provider_change(config, changes, provider_field="llm_provider", kind="llm")
+    _apply_provider_change(config, changes, provider_field="embed_provider", kind="embed")
+    _apply_provider_change(config, changes, provider_field="rerank_provider", kind="rerank")
 
     # 先算出「实际发生变化的字段」，再写入。顺序很重要：
     # 写入之后旧值就没了，无法再判断是否真的变化。

@@ -97,8 +97,6 @@ export interface ProviderOption {
    *   - 必须由用户填写（value === "custom"）→ 界面必须给输入框。
    */
   default_base_url: string | null;
-  /** custom 为空字符串：没有可推荐的默认模型，必须由用户填写 */
-  default_model: string;
   /**
    * 该 provider 的地址是否必须由用户填写（当前只有 custom 为 true）。
    *

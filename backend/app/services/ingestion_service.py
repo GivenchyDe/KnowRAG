@@ -316,7 +316,8 @@ def _build_embedding(config: ModelConfig):
 
     return build_embedding(
         provider=config.embed_provider,
-        model=config.embed_model or "text-embedding-v4",
+        # 不套用内置模型名：留空由 build_embedding 报错（2026-10-04 改）。
+        model=config.embed_model,
         api_key=decrypt_api_key(config.embed_api_key_encrypted),
         # 已保存的地址优先、目录兜底；custom 两者皆无时由 build_embedding 报错。
         base_url=resolve_base_url("embed", config.embed_provider, config.embed_base_url),

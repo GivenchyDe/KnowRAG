@@ -131,7 +131,16 @@ def build_embedding(
       直接调 OpenAI 兼容的 `/embeddings`）。**不能用 llama-index 的 `OpenAIEmbedding`**：
       它把 `model` 限定在 OpenAI 自家模型枚举里，第三方模型名会被直接拒绝
       （原因见该类的文档注释）。
+
+    `model` 为空一律报错，**不套用任何内置的模型名**（2026-10-04 改）：
+    静默换一个用户没选过的模型，成本与效果都由他承担却不可见。
     """
+    if not (model or "").strip():
+        raise AppError(
+            ErrorCode.MODEL_CONFIG_INVALID,
+            f"Embedding 模型名为空（provider={provider}），请在「模型设置」页填写具体模型 ID",
+        )
+
     if provider == "qwen":
         from llama_index.embeddings.dashscope import DashScopeEmbedding
 
@@ -140,7 +149,7 @@ def build_embedding(
                 ErrorCode.MODEL_CONFIG_INVALID,
                 "Embedding provider 为 qwen，但未提供 Embedding API Key",
             )
-        return DashScopeEmbedding(model_name=model or "text-embedding-v4", api_key=api_key)
+        return DashScopeEmbedding(model_name=model, api_key=api_key)
 
     if provider in _OPENAI_COMPATIBLE_EMBED_PROVIDERS:
         if not api_key:
@@ -309,6 +318,12 @@ def score_with_reranker(
     if not passages:
         return []
 
+    if not (model or "").strip():
+        raise AppError(
+            ErrorCode.MODEL_CONFIG_INVALID,
+            f"Reranker 模型名为空（provider={provider}），请在「模型设置」页填写具体模型 ID",
+        )
+
     if provider == "qwen":
         if not api_key:
             raise AppError(ErrorCode.MODEL_CONFIG_INVALID, "未提供 Reranker API Key")
@@ -319,7 +334,7 @@ def score_with_reranker(
                 "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                 json={
-                    "model": model or "gte-rerank-v2",
+                    "model": model,
                     "input": {"query": query, "documents": [p.text for p in passages]},
                     "parameters": {"top_n": len(passages), "return_documents": False},
                 },

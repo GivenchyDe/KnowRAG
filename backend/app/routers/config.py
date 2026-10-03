@@ -153,7 +153,11 @@ def test_connection(
         base_url = (payload.base_url or "").strip() or (
             (option["default_base_url"] or "") if option else ""
         )
-        model = (payload.model or "").strip() or (option["default_model"] if option else "")
+        model = (payload.model or "").strip()
+        # 不再用目录里的模型名兜底（2026-10-04 改）：否则"测试通过"可能对应的是
+        # 一个用户没打算用的模型，测试结论就失去了意义。要测就必须明确填模型名。
+        if not model:
+            raise AppError(ErrorCode.VALIDATION_ERROR, "未提供模型名")
         key_from = "request"
 
     if not base_url and (

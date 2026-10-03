@@ -21,10 +21,12 @@ import type { ModelConfigUpdate, ProviderOption } from "@/types/config";
  *    「预设下拉 + 手动输入」混合方案，现已撤销）。撤销原因不是取舍偏好，而是
  *    原生控件下这两件事不可兼得：`<input list>` 右端的原生箭头**无法用 CSS 隐藏**
  *    （2026-10-02 在 Chrome 154 上实测四种手法全部无效，见模板里的详细注释）。
- *    既然箭头去不掉、又和本项目的控件语言冲突，就改成只要"手输"：
- *    推荐模型通过 placeholder 提示（取值仍来自后端目录，前端不硬编码模型名）。
- *    后端目录里的 `models` / `recommended` 字段保留未动——它是接口数据，
- *    将来若换成自绘候选面板可以直接用。
+ *    既然箭头去不掉、又和本项目的控件语言冲突，就改成只要"手输"。
+ * 4. **不向用户提供任何模型名**（2026-10-04 起）：后端目录已删掉 `models` /
+ *    `recommended` / `default_model`，因此这里既不自动填入、也不在占位文案里
+ *    举例，占位只写"手动输入模型 ID"；模型名留空保存会被后端拒绝并回报明确原因。
+ *    需要建议列表时的正确做法是自绘候选面板或 Element Plus 的 `el-autocomplete`，
+ *    不要再搬回原生 `datalist`。
  */
 
 const configStore = useConfigStore();
@@ -46,18 +48,6 @@ const draft = reactive({
   rerankBaseUrl: "",
   rerankModel: "",
 });
-
-/**
- * 用户是否手动改过某类别的模型名。
- *
- * 只用于「切换 Provider 时是否自动填充默认模型」这一条交互：没手动改过（输入框里
- * 还是上一个 provider 的默认值）就覆盖成新 provider 的默认值；手动改过则保留用户的选择
- * （他可能填了一个预设列表里没有的 ID，覆盖掉等于替他做决定）。
- *
- * 判据是 `@input` 事件：**只有真实输入会触发它**，代码里给 v-model 赋值不会，
- * 因此不必额外维护"这次改动是程序做的还是人做的"这类容易出错的状态。
- */
-const modelEdited = reactive({ llm: false, embed: false, rerank: false });
 
 /** 是否正在替换某把 Key（点击「替换」后为 true，用于切换输入框与脱敏展示）。 */
 const replacingKey = reactive({ llm: false, embed: false, rerank: false });
@@ -99,11 +89,6 @@ function syncDraft(): void {
   clearingKey.llm = false;
   clearingKey.embed = false;
   clearingKey.rerank = false;
-  // 草稿已与后端同步，"手动改过"这个标记也随之复位：下一次切换 provider
-  // 应当重新按默认值填充，而不是继承上一次会话的编辑痕迹。
-  modelEdited.llm = false;
-  modelEdited.embed = false;
-  modelEdited.rerank = false;
 }
 
 onMounted(async () => {
@@ -131,32 +116,24 @@ function requiresBaseUrl(kind: "llm" | "embed" | "rerank"): boolean {
   return currentOption(kind, providerOf(kind))?.requires_base_url ?? false;
 }
 
-/** 用户在某类别的模型输入框里真实输入过内容。 */
-function markModelEdited(kind: "llm" | "embed" | "rerank"): void {
-  modelEdited[kind] = true;
-}
-
 /**
  * 模型名输入框的占位文案。
  *
- * 模型名是**纯手动输入**（不用 `<datalist>`，原因见模板里的注释），因此在框里
- * 给出该 provider 的默认/推荐模型作为示例——取值来自后端目录的 `default_model`，
- * 前端仍然不硬编码任何模型名。没有默认值的 provider（custom）就只说"手动输入"。
+ * 模型名是**纯手动输入**（不用 `<datalist>`，原因见模板里的注释），而且
+ * **后端目录不再提供任何模型名**（2026-10-04 起删除了 `models` 与 `default_model`），
+ * 所以这里只给格式性提示、不给示例名——避免用户以为"框架替他选了某个模型"。
  */
-function modelPlaceholder(kind: "llm" | "embed" | "rerank"): string {
-  const defaultModel = currentOption(kind, providerOf(kind))?.default_model ?? "";
-  return defaultModel ? `如 ${defaultModel}` : "手动输入模型 ID";
+function modelPlaceholder(): string {
+  return "手动输入模型 ID";
 }
 
 /**
- * 切换 provider 时把模型名与 base_url 换成该 provider 的默认值，避免内部不一致
- * （例如"provider 已是 qwen、模型名还是 deepseek-v4-pro"）。
+ * 切换 provider 时把接口地址换成该 provider 的默认值，避免内部不一致
+ * （例如"provider 已是 qwen、地址还是 deepseek 的"）。
  *
- * **例外**：模型名被用户手动改过就不覆盖——他可能填了一个预设列表里没有的 ID，
- * 替用户改回默认值等于丢掉他刚敲进去的东西。判据是 `modelEdited`，
- * 由输入框的 `@input` 置位（只有真实输入会触发）。
- * 注意这里只对"模型名"做例外：地址随 provider 变化是必须的，
- * 否则会拿 A 家的地址去请求 B 家。
+ * **模型名不填也不覆盖**（2026-10-04 改）：目标 provider 没有可预填的名字，
+ * 由用户自己填；留空保存时后端会明确报错，而不是悄悄用别的模型跑。
+ * 地址仍然随 provider 变化——用 A 家的地址请求 B 家一定会失败，没有第二种选择。
  */
 function onProviderChange(kind: "llm" | "embed" | "rerank"): void {
   const option = currentOption(kind, providerOf(kind));
@@ -164,13 +141,10 @@ function onProviderChange(kind: "llm" | "embed" | "rerank"): void {
     return;
   }
   if (kind === "llm") {
-    if (!modelEdited.llm) draft.llmModel = option.default_model;
     draft.llmBaseUrl = option.default_base_url ?? "";
   } else if (kind === "embed") {
-    if (!modelEdited.embed) draft.embedModel = option.default_model;
     draft.embedBaseUrl = option.default_base_url ?? "";
   } else {
-    if (!modelEdited.rerank) draft.rerankModel = option.default_model;
     draft.rerankBaseUrl = option.default_base_url ?? "";
   }
 }
@@ -329,13 +303,12 @@ function providerOf(kind: "llm" | "embed" | "rerank"): string {
                  （::-webkit-calendar-picker-indicator / ::-webkit-list-button /
                  appearance: none / opacity: 0，加与不加逐像素完全相同）。
                  既然"有建议列表"与"没有箭头"在原生控件下不可兼得，这里选择不要箭头：
-                 模型名手输，推荐模型通过占位文案提示（值仍来自后端目录）。 -->
+                 模型名手输，占位文案只给格式提示、不举任何模型名（后端目录已不提供）。 -->
             <input
               v-model="draft.llmModel"
               class="kr-input"
               type="text"
-              :placeholder="modelPlaceholder('llm')"
-              @input="markModelEdited('llm')"
+              :placeholder="modelPlaceholder()"
             />
           </label>
 
@@ -496,8 +469,7 @@ function providerOf(kind: "llm" | "embed" | "rerank"): string {
               v-model="draft.embedModel"
               class="kr-input"
               type="text"
-              :placeholder="modelPlaceholder('embed')"
-              @input="markModelEdited('embed')"
+              :placeholder="modelPlaceholder()"
             />
           </label>
 
@@ -627,8 +599,7 @@ function providerOf(kind: "llm" | "embed" | "rerank"): string {
               v-model="draft.rerankModel"
               class="kr-input"
               type="text"
-              :placeholder="modelPlaceholder('rerank')"
-              @input="markModelEdited('rerank')"
+              :placeholder="modelPlaceholder()"
             />
           </label>
 
