@@ -1,6 +1,6 @@
 # KnowRAG · RAG个人知识库问答系统
 
-> 前端 Vue3 · 多用户登录 · 多模型可选（远程 DeepSeek / Qwen）· 会话严格隔离
+> 前端 Vue3 · 多用户登录 · 多模型可选 · 会话严格隔离
 
 > 说明：README 负责项目总览和关键架构说明；具体编码、目录、数据库字段、接口契约和阶段验收以 `docs/DESIGN_IMPLEMENTATION.md` 为准。
 
